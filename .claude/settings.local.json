@@ -6,7 +6,8 @@
       "Bash(apt-get install:*)",
       "Bash(java:*)",
       "Bash(pip install:*)",
-      "Bash(/opt/jadx/bin/jadx:*)"
+      "Bash(/opt/jadx/bin/jadx:*)",
+      "Bash(python3:*)"
     ]
   }
 }
