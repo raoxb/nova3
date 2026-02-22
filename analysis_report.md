@@ -1047,8 +1047,8 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 |------|----------|--------|----------|
 | 信令协议 | `restored_java/signaling/` | 19 | 1,514 |
 | WebRTC 远程控制 | `restored_java/webrtc/` | 4 | 2,897 |
-| 触摸事件伪造 | `restored_java/touch/` | 6 | 2,868 |
-| **合计** | `restored_java/` | **29** | **7,279** |
+| 触摸伪造 + WebView 自动化 | `restored_java/touch/` | 9 | 3,817 |
+| **合计** | `restored_java/` | **32** | **8,228** |
 
 ### 10.3 分析辅助工具
 
@@ -1283,7 +1283,7 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 ### 13.1 还原概述
 
-对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖三大功能模块，共计 **29 个文件、7,279 行**代码。
+对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖三大功能模块，共计 **32 个文件、8,228 行**代码。
 
 #### 还原手段
 
@@ -1304,8 +1304,8 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 |------|--------|----------|----------|
 | 信令协议 (Signaling) | 19 | 1,514 | `restored_java/signaling/` |
 | WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
-| 触摸事件伪造 | 6 | 2,868 | `restored_java/touch/` |
-| **合计** | **29** | **7,279** | `restored_java/` |
+| 触摸伪造 + WebView 自动化 | 9 | 3,817 | `restored_java/touch/` |
+| **合计** | **32** | **8,228** | `restored_java/` |
 
 ---
 
@@ -1384,12 +1384,12 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 ---
 
-### 13.4 触摸事件伪造还原 (6 文件)
+### 13.4 触摸伪造 + WebView 自动化还原 (9 文件)
 
-**原始路径**: `jadx_output/sources/com/nied/` 和 `jadx_output/sources/lIllIlIll1/`
+**原始路径**: `jadx_output/sources/com/nied/`、`jadx_output/sources/lIllIlIll1/`、`jadx_output/sources/com/nied/lduvv/`
 **还原路径**: `restored_java/touch/`
 
-这些类实现了高度仿真的触摸事件伪造系统和 WebView 自动化引擎。
+这些类实现了高度仿真的触摸事件伪造系统和完整的 WebView 自动化引擎，包含任务编排、信令/非信令双模式任务实现。
 
 #### 文件清单与类名映射
 
@@ -1400,6 +1400,9 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 | `SwipeSimulator.java` | `lIllIlIll1.lIIIIlllllIlll1` | 189 | 贝塞尔曲线滑动模拟器：使用 AccelerateDecelerateInterpolator + Path.quadTo() 生成自然滑动手势 |
 | `WebViewBridge.java` | `lIllIlIll1.IlIllIlllIllI1` | 138 | JavaScript Bridge 接口：定义 16 个 @JavascriptInterface 方法 (touch/scroll/screenshot/done/upload_event 等) |
 | `WebViewAutomationBase.java` | `lIllIlIll1.llllIIIIll1` | 1,475 | WebView 自动化基类：WebSettings 全权限配置、JS 注入、请求拦截/代理、触摸分发、事件上报、反取证清理 |
+| `TaskOrchestrator.java` | `lIllIlIll1.IlIlllIIlI1` | 532 | 任务编排器：C&C 认证、JS 下载/缓存、信令/非信令模式分发、WebView 创建、任务重启循环 |
+| `SignalingModeTask.java` | `lIllIlIll1.IllIIlIIII1` | 271 | 信令模式任务：extends WebViewAutomationBase，创建 WebRTCController、上报信令状态、通过 WebRTC 截屏 |
+| `NonSignalingModeTask.java` | `lIllIlIll1.llllIllIl1` | 146 | 非信令模式任务：extends WebViewAutomationBase，本地截屏、任务完成后自动重启下一轮循环 |
 | `SDKInitializer.java` | `com.nied.lduvv.Kucopd` | 51 | SDK 入口点：后台线程启动 WebView 自动化管道 |
 
 #### MotionHelper.java 还原要点
@@ -1484,6 +1487,62 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 - XPath 表达式求值器，定位页面元素并返回边界矩形
 - 原生 `postMessage` 函数伪装 (重写 `toString`、`valueOf`、`name`、`length` 属性使其看起来像原生实现)
 
+#### TaskOrchestrator.java 还原要点
+
+中央任务编排器，原始 303 行混淆代码 → 532 行还原代码，含 44 个 XOR 加密字符串。
+
+**静态常量还原** (4 个，在 static 初始化块中 XOR 解密):
+
+| 原始字段 | 还原名称 | 解密值 | 用途 |
+|----------|----------|--------|------|
+| `f462IllIIlIIII1` | `SIGNALING_JS_FILE_KEY` | `"eiedo/s_pfile"` | 信令 JS 文件缓存键 |
+| `f463lIIIIlllllIlll1` | `JS_VERSION_KEY_ALT` | `"JS_VERSION"` | JS 版本检查键 (备用) |
+| `f464llllIIIIll1` | `JS_VERSION_KEY` | `"JS_VERSION"` | SharedPreferences 版本缓存键 |
+| `f465llllIllIl1` | `NON_SIGNALING_JS_FILE_KEY` | `"eiedo/pfile"` | 非信令 JS 文件缓存键 |
+
+**内部类还原** (4 个):
+
+| 原始混淆名 | 还原名称 | 基类 | 功能 |
+|-----------|----------|------|------|
+| `lIIIIlllllIlll1` | `CreateWebViewRunnable` | Runnable | UI 线程创建 WebView 实例 |
+| `llllIIIIll1` | `TaskExecutionRunnable` | Runnable | 主任务执行：认证→下载JS→创建任务实例 |
+| `llllIIIIll1.lIIIIlllllIlll1` | `InitWebViewRunnable` | Runnable | UI 线程调用 initializeWebView() |
+| `RunnableC0018llllIIIIll1` | `RestartRunnable` | Runnable | 触发任务重启循环 |
+
+**关键解密字符串**:
+- 构造函数: `"ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI="` (WebView 数据目录后缀 Base64 编码)
+- 认证: `"getToken"`, `"get token API error: "`
+- 任务执行: `"start task"`, `"get task: "`, `"start task failed: "`
+- JS 下载: `"checkSignalingJsVersion start"`, `"checkJsVersion start"`, `"signaling token: "`
+- 文件操作: `"写入JS文件失败"`, `"js is empty"`, `"read signaling JS from cache error: "`
+- 重启: `"H5V1Refactor task start (restart)"`
+
+#### SignalingModeTask.java 还原要点
+
+信令模式任务实现 (extends WebViewAutomationBase)，147 行 → 271 行，含 8 个 XOR 字符串。
+
+| 原始字段 | 还原名称 | 说明 |
+|----------|----------|------|
+| `f473lIIlIIIIlIlII1` | `inLandingReported` | IN_LANDING 状态上报标志 |
+| `f474lIlllIIIII1` | `webRTCController` | WebRTCController 实例 |
+| 内部类 `lIIIIlllllIlll1` | `GetUrlRunnable` | UI 线程获取当前 URL |
+| 内部类 `llllIIIIll1` | `SignalingCleanupRunnable` | 清理时同时停止 WebRTCController |
+| 内部类 `llllIllIl1` | `StatusUpdateCallback` | 状态上报回调 |
+
+关键行为: `isMainPageLoaded()` 返回 `!inLandingReported` — 在 IN_LANDING 状态上报成功前阻止 JS 注入。
+
+#### NonSignalingModeTask.java 还原要点
+
+非信令模式任务实现 (extends WebViewAutomationBase)，73 行 → 146 行，含 1 个 XOR 字符串。
+
+| 原始字段 | 还原名称 | 说明 |
+|----------|----------|------|
+| `f524lIIlIIIIlIlII1` | `restartCallback` | 任务完成后重启回调 |
+| `f525lIlllIIIII1` | `screenshotter` | 本地 Bitmap 截屏器 |
+| 内部类 `llllIIIIll1` | `EmptyScreenshotCallback` | 空截图回调 |
+
+关键行为: `cleanup()` 调用 `super.cleanup()` 后 sleep 1 秒，然后触发 `restartCallback.run()` 开始下一轮任务循环。
+
 ---
 
 ### 13.5 辅助工具
@@ -1492,6 +1551,7 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 |---------|------|------|
 | `decrypt_all_strings.py` | `根目录` | 批量 XOR 解密器 — 提取信令/WebRTC 文件中所有加密调用并解密 |
 | `decrypt_touch_strings.py` | `根目录` | 触摸模块 XOR 解密器 — 提取 SwipeSimulator/WebViewAutomationBase/SDKInitializer 中的加密字符串 |
+| `decrypt_xor_strings.py` | `根目录` | WebView 自动化模块 XOR 解密器 — 提取 TaskOrchestrator/SignalingModeTask/NonSignalingModeTask 中的加密字符串 |
 
 #### 解密器工作原理
 
