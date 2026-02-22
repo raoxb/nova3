@@ -1961,10 +1961,15 @@ Spring Boot Application
 | 属性 | 值 | 推断依据 |
 |------|---|---------|
 | **域名** | `playstations.click` | ApiClient.BASE_URL 常量 |
-| **协议** | HTTPS | URL 前缀 `https://` |
+| **DNS** | `172.67.144.175`, `104.21.87.166` (Cloudflare) | DNS 解析实测 |
+| **CDN/WAF** | Cloudflare (HSTS, CORS `*`) | 响应头 `Server: cloudflare`, CF-RAY |
+| **后端 Web 服务器** | nginx | 404 页面返回 `nginx` |
+| **协议** | HTTPS (TLS, 强制 HSTS) | strict-transport-security: max-age=15724800 |
 | **加密** | XOR+Base64 (HttpClient 层) | HttpClient.encryptionKey 动态设置 |
 | **认证** | Token-based | /phantom/token 返回 auth token |
 | **User-Agent** | 动态构建 | PreferencesHelper.buildUserAgent() |
+| **CORS** | 全开放 (`*`) | access-control-allow-origin: * |
+| **当前状态** | 域名存活，API 端点已下线 (404 nginx) | 实测 9 个端点均返回 404 |
 
 #### 必须实现的 API 端点
 
@@ -2320,3 +2325,54 @@ TURN 服务器功能:
 | **插件系统** | 通过 C&C 配置服务器可动态下发加密的 .dex 插件，实现远程代码更新 |
 | **A/B 模式** | 信令/非信令双模式设计，服务端可按设备灵活选择操作模式 |
 | **反取证协作** | 客户端 92% 概率清理痕迹，服务端不在响应中留存可识别标记 |
+
+### 14.9 playstations.click 服务器探测结果
+
+使用 `c2_client.py` 对 `playstations.click` 全部 9 个端点进行了实际探测：
+
+#### 基础设施信息
+
+| 项目 | 结果 |
+|------|------|
+| **DNS 解析** | `172.67.144.175`, `104.21.87.166` (Cloudflare Anycast) |
+| **CDN/WAF** | Cloudflare (CF-RAY 标记，边缘节点 LAX) |
+| **HSTS** | `strict-transport-security: max-age=15724800; includeSubDomains` (~182 天) |
+| **CORS** | 完全开放: `access-control-allow-origin: *`, 允许凭据, 支持所有 HTTP 方法 |
+| **后端服务器** | nginx (404 页面标识) |
+| **TLS** | 有效证书 (Cloudflare 托管) |
+
+#### API 端点探测结果
+
+```
+请求配置:
+  Content-Type:  application/json; charset=utf-8
+  Accept:        application/json
+  User-Agent:    MyApp/1.0 (Linux; Android 14; Pixel 6) DPI/420
+  Body:          DeviceAuthRequest JSON (含 15 字段设备指纹)
+```
+
+| 端点 | HTTP 状态 | 响应 |
+|------|----------|------|
+| `POST /phantom/token` | **404** | nginx 404 Not Found |
+| `POST /phantom/task` | **404** | nginx 404 Not Found |
+| `POST /phantom/file_version` | **404** | nginx 404 Not Found |
+| `POST /phantom/file` | **404** | nginx 404 Not Found |
+| `POST /phantom/done` | **404** | nginx 404 Not Found |
+| `POST /h5/upload_logs_v2` | **404** | nginx 404 Not Found |
+| `POST /h5/js_file_for_signaling` | **404** | nginx 404 Not Found |
+| `POST /h5/get_job_by_offer` | **404** | nginx 404 Not Found |
+| `POST /h5/report_events` | **404** | nginx 404 Not Found |
+
+#### 与 dllpgd.click 对比
+
+| 项目 | dllpgd.click | playstations.click |
+|------|-------------|-------------------|
+| **DNS** | AWS EC2 (18.204.68.18, 18.206.233.238) | Cloudflare (172.67.144.175, 104.21.87.166) |
+| **CDN** | 无 (直连 EC2) | Cloudflare (CDN+WAF) |
+| **TLS** | 无 (HTTP 80, HTTPS 443 拒绝) | 有效 (Cloudflare 托管证书, HSTS) |
+| **后端** | Spring Boot (Java) | nginx |
+| **加密** | AES-256-CFB (5层管道) | XOR+Base64 (动态密钥) |
+| **CORS** | 未配置 | 完全开放 (`*`) |
+| **状态** | 服务器存活，API 下线 (Spring Boot 404) | 域名存活，API 下线 (nginx 404) |
+
+**结论**: 两台 C&C 服务器的后端 API 均已停用。`playstations.click` 使用了 Cloudflare 作为 CDN 和 WAF，安全配置更完善（HSTS、TLS）；其 CORS 全开放 (`access-control-allow-origin: *`) 表明后端曾需要支持浏览器端的跨域请求（可能有 Web 管理面板/攻击者控制端）。`dllpgd.click` 则直接暴露 EC2 IP，安全性较低。
