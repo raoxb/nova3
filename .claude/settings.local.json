@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(unzip:*)",
+      "Bash(apt-get update:*)",
+      "Bash(apt-get install:*)",
+      "Bash(java:*)",
+      "Bash(pip install:*)",
+      "Bash(/opt/jadx/bin/jadx:*)"
+    ]
+  }
+}
