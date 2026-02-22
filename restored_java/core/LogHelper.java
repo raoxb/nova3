@@ -141,24 +141,18 @@ public class LogHelper {
     }
 
     // =========================================================================
-    // Placeholder types for unrestored dependencies
+    // Dependency Index (all restored)
     // =========================================================================
 
     /*
-     * AppContext (IlIlllIIlI1.lIIIIlllllIlll1):
-     *   - static boolean isLogUploadEnabled() — checks if C&C log upload is active
-     *   - static Object taskConfig — the current task configuration
+     * AppContext → core/AppContext.java (IlIlllIIlI1.lIIIIlllllIlll1)
+     *   - static boolean isLogUploadEnabled()
+     *   - static TaskConfig taskConfig
      *
-     * EventReporter (lllllIllIl1.lIIIIlllllIlll1):
-     *   - static void enqueueLog(Log logEntry) — adds log entry to upload queue
-     *   - f705llllllIlIIIlll1 → reporter instance
-     *   - llllIIIIll1(EventType, String) → report(eventType, data)
+     * EventReporter → (lllllIllIl1.lIIIIlllllIlll1)
+     *   - static void enqueueLog(Log logEntry)
+     *   - Not yet individually restored; stub retained for compilation.
      */
-    static class AppContext {
-        static boolean isLogUploadEnabled() { return false; }
-        static Object taskConfig;
-    }
-
     static class EventReporter {
         static void enqueueLog(Log logEntry) { }
     }

@@ -8,6 +8,8 @@ import android.util.Log;
 import android.view.MotionEvent;
 import android.view.animation.AccelerateDecelerateInterpolator;
 import android.webkit.WebView;
+import android.os.Handler;
+import android.os.Looper;
 import java.util.Random;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -23,6 +25,16 @@ public class SwipeSimulator implements Runnable {
 
     private static final String TAG = "SwipeSimulator";
     private static final long STEP_INTERVAL_MS = 20;
+
+    /**
+     * Bezier 控制点随机上界，来自 TypedValues.TYPE_TARGET = 101。
+     * nextInt(101) / 100.0f → [0.0, 1.01)，使控制点始终贴近起止点连线，曲线自然。
+     * 原始 JADX: r0.nextInt(TypedValues.TYPE_TARGET)
+     */
+    private static final int CONTROL_POINT_RANDOM_BOUND = 101;
+
+    /** Main thread Handler for dispatching touch events (dispatchTouchEvent 必须在 UI 线程执行). */
+    private static final Handler MAIN_HANDLER = new Handler(Looper.getMainLooper());
 
     /** The target WebView to receive dispatched touch events. */
     public final WebView webView;
@@ -104,11 +116,12 @@ public class SwipeSimulator implements Runnable {
         this.duration = duration;
 
         // Compute a randomized Bezier control point.
-        // nextInt(1000) / 100.0f yields a value in [0, 10.0), creating a wide range
-        // of possible control point positions for varied curve shapes.
+        // Original JADX: r0.nextInt(TypedValues.TYPE_TARGET) where TYPE_TARGET = 101
+        // nextInt(101) / 100.0f yields a value in [0.0, 1.01), keeping the control point
+        // close to the start-end line for a natural-looking swipe curve.
         this.controlPoint = new PointF(
-                ((this.random.nextInt(1000) / 100.0f) * (endPoint.x - startPoint.x)) + startPoint.x,
-                ((this.random.nextInt(1000) / 100.0f) * (endPoint.y - startPoint.y)) + startPoint.y
+                ((this.random.nextInt(CONTROL_POINT_RANDOM_BOUND) / 100.0f) * (endPoint.x - startPoint.x)) + startPoint.x,
+                ((this.random.nextInt(CONTROL_POINT_RANDOM_BOUND) / 100.0f) * (endPoint.y - startPoint.y)) + startPoint.y
         );
     }
 
@@ -159,8 +172,9 @@ public class SwipeSimulator implements Runnable {
                 }
 
                 DispatchTouchRunnable runnable = new DispatchTouchRunnable(eventRef, action, pos[0], pos[1]);
-                /* post to main thread */
-                runnable.run();
+                // 原始 JADX: IlIlllIIlI1.lIIIIlllllIlll1.llllIIIIll1(new llllIIIIll1(...))
+                // dispatchTouchEvent 必须在 UI 线程执行，通过 Handler.post() 派发
+                MAIN_HANDLER.post(runnable);
             }
 
             elapsedTime += STEP_INTERVAL_MS;

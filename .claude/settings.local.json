@@ -18,7 +18,8 @@
       "Bash(echo:*)",
       "Bash(head:*)",
       "Bash(xargs ls -lh)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(curl:*)"
     ]
   }
 }

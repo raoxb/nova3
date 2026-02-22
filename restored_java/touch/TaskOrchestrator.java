@@ -577,55 +577,36 @@ public class TaskOrchestrator {
     }
 
     // =========================================================================
-    // Placeholder types for unrestored dependencies
-    // (These represent real classes in the obfuscated APK that have not been
-    //  individually restored. The type names below document their role.)
+    // Dependency Index (all restored)
     // =========================================================================
 
     /*
-     * The following are stub references to external classes used by this orchestrator.
-     * In the actual APK, these are:
+     * All dependencies for this class have been restored:
      *
-     * AppContext (IlIlIIIlIlIlll1.IIlIllIIll1):
-     *   - static Context applicationContext
-     *   - static String authToken
-     *   - static TaskConfig taskConfig
-     *   - static void postToMainThread(Runnable)
-     *   - static void setDataDirectorySuffix(String)
-     *   - static SignalingConnection getSignalingConnection()
+     * ┌─────────────────────────┬────────────────────────────────────────┬──────────────────────────────────┐
+     * │ Restored Class          │ Original Obfuscated Name               │ Restored File                    │
+     * ├─────────────────────────┼────────────────────────────────────────┼──────────────────────────────────┤
+     * │ AppContext              │ IlIlllIIlI1.lIIIIlllllIlll1           │ core/AppContext.java             │
+     * │ TaskConfig              │ IlIlllIIlI1.llllIllIl1                │ core/TaskConfig.java             │
+     * │ PreferencesHelper       │ IlIlIIIlIlIlll1.IIlIllIIll1          │ core/PreferencesHelper.java      │
+     * │ ApiClient               │ IlIllIlllIllI1.llllIIIIll1            │ api/ApiClient.java               │
+     * │ ApiException            │ IIlIllIIll1.llllIIIIll1               │ api/ApiException.java            │
+     * │ NetworkException        │ IlIllIlllIllI1.lIIIIlllllIlll1.llllIIIIll1 │ api/NetworkException.java  │
+     * │ LogHelper               │ lllllIllIl1.IllIIlIIII1               │ core/LogHelper.java              │
+     * │ Log (+ LogLevel enum)   │ c13.nim5.ez8.h5_proto.Log             │ model/Log.java                   │
+     * │ TokenResponse           │ lIllIIIlIl1.IlIlllIIlI1              │ model/TokenResponse.java         │
+     * │ ConfigResponse          │ lIllIIIlIl1.lIllIlIll1 (=FileContent) │ model/ConfigResponse.java        │
+     * │ FileVersionResponse     │ lIllIIIlIl1.IllIIlIIII1 (=FileInfo)  │ model/FileVersionResponse.java   │
+     * │ FileInfoResponse        │ lIllIIIlIl1.IllIIlIIII1 (=FileVer)   │ model/FileInfoResponse.java      │
+     * │ FileContentResponse     │ lIllIIIlIl1.lIllIlIll1 (=Config)     │ model/FileContentResponse.java   │
+     * │ WebViewAutomationBase   │ lIllIlIll1.llllIllIl1                 │ touch/WebViewAutomationBase.java │
+     * │ SignalingModeTask       │ lIllIlIll1.llllIIIIll1                │ touch/SignalingModeTask.java     │
+     * │ NonSignalingModeTask    │ lIllIlIll1.lIIIIlllllIlll1           │ touch/NonSignalingModeTask.java  │
+     * └─────────────────────────┴────────────────────────────────────────┴──────────────────────────────────┘
      *
-     * PreferencesHelper (IlIlIIIlIlIlll1.IIlIllIIll1):
-     *   - static String readPref(Context, String key)
-     *   - static void savePref(Context, String key, String value)
-     *   - static String readFile(Context, String fileKey)
-     *   - static boolean writeFile(Context, String fileKey, String content)
-     *   - static String computeToken(String apiKey, String versionKey)
-     *
-     * ApiClient (IlIllIlllIllI1.llllIIIIll1):
-     *   - static TokenResponse getToken() throws NetworkException
-     *   - static ConfigResponse getNonSignalingConfig() throws NetworkException
-     *   - static ConfigResponse getSignalingConfig(String sessionId, String offerId) throws NetworkException
-     *   - static FileVersionResponse getFileSignalingLogic(String token) throws NetworkException
-     *   - static FileInfoResponse getNonSignalingJSInfo() throws NetworkException
-     *   - static FileContentResponse getFile() throws NetworkException
-     *
-     * ApiException (IIlIllIIll1.llllIIIIll1):
-     *   - Constructor: ApiException(String name, int code, String message)
-     *
-     * NetworkException (IlIllIlllIllI1.lIIIIlllllIlll1.llllIIIIll1):
-     *   - Thrown on HTTP/network failures
-     *
-     * LogHelper (lllllIllIl1.IllIIlIIII1):
-     *   - static void log(LogLevel level, String tag, String message)
-     *
-     * LogLevel (c13.nim5.ez8.h5_proto.Log.LogLevel):
-     *   - INFO, WARN, ERROR
-     *
-     * Response types (from lIllIIIlIl1 package):
-     *   TokenResponse:       getCode(), getData(), getMessage()
-     *   ConfigResponse:      getCode(), getData(), getMessage()
-     *   FileVersionResponse: getCode(), getVersion(), getContent(), getMessage()
-     *   FileInfoResponse:    getCode(), getVersion(), getMessage()
-     *   FileContentResponse: getCode(), getContent(), getMessage()
+     * NOTE: ConfigResponse and FileContentResponse are the SAME obfuscated class
+     *       (lIllIIIlIl1.lIllIlIll1, fields f427-f429). Similarly, FileInfoResponse
+     *       and FileVersionResponse are the SAME class (lIllIIIlIl1.IllIIlIIII1,
+     *       fields f417-f419). Separate restored files exist for semantic clarity.
      */
 }
