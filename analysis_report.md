@@ -24,23 +24,122 @@
 
 ## 三、架构总览
 
+### 3.1 模块拓扑
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  APK (com.android.wallpaper)                                                │
+│                                                                              │
+│  ┌─ core/ ──────────────────────────────────┐  ┌─ api/ ──────────────────┐  │
+│  │ AppContext          全局状态/主线程派发    │  │ ApiClient    9个C&C端点  │  │
+│  │ TaskConfig          SDK运行配置           │  │ HttpClient   HTTP传输层  │  │
+│  │ PreferencesHelper   AES加密存储/文件I/O   │  │ ApiException API异常     │  │
+│  │ LogHelper           日志 → C&C上传        │  │ NetworkException 网络异常│  │
+│  │ RequestFilter       WebView请求拦截       │  └────────────────────────┘  │
+│  │ ScreenHelper        屏幕尺寸获取          │                              │
+│  └───────────────────────────────────────────┘                              │
+│                                                                              │
+│  ┌─ touch/ ─────────────────────────────────┐  ┌─ model/ ────────────────┐  │
+│  │ TaskOrchestrator    任务编排中心           │  │ Log / LogLevel   日志模型│  │
+│  │ WebViewAutomationBase  WebView引擎基类    │  │ DeviceFingerprint 15字段 │  │
+│  │ SignalingModeTask   信令模式任务          │  │ DeviceAuthRequest 认证   │  │
+│  │ NonSignalingModeTask 自主模式任务         │  │ TokenResponse           │  │
+│  │ MotionHelper        触摸事件伪造(9轴)     │  │ ConfigResponse          │  │
+│  │ SwipeSimulator      贝塞尔曲线滑动        │  │ FileVersionResponse     │  │
+│  │ SDKInitializer      SDK入口              │  │ FileInfoResponse        │  │
+│  │ WebViewBridge       JS桥接口             │  │ FileContentResponse     │  │
+│  │ RandomHelper        高精度随机数          │  │ Offer / Jsonable        │  │
+│  └───────────────────────────────────────────┘  └────────────────────────┘  │
+│                                                                              │
+│  ┌─ signaling/ ─────────────────────────────┐  ┌─ webrtc/ ──────────────┐  │
+│  │ SignalingConnection  WebSocket信令管理     │  │ WebRTCController 主控   │  │
+│  │ SignalingRequest/Response 消息封装        │  │ VirtualDisplayCapturer  │  │
+│  │ SDPOffer/SDPAnswer   SDP交换             │  │ BitmapFrameCapturer     │  │
+│  │ ICECandidate         ICE候选             │  │ SafeVideoDecoderFactory │  │
+│  │ ControlCommand       远程控制命令         │  └────────────────────────┘  │
+│  │ Ping/Pong            心跳保活             │                              │
+│  │ ConnectionStatus     状态机              │  ┌─ c2/ ────────────────────┐ │
+│  │ Click/Scroll/TextInput 操作事件          │  │ DllpgdLiteSDK  主入口    │ │
+│  │ UpdateSignalingStatus 状态上报           │  │ HttpGatewayClient AES通信│ │
+│  │ CheckSignalingPluginStart 插件检查       │  │ Atom / DeviceInfo 指纹   │ │
+│  │ Done / Error          完成/错误           │  │ DllpgdConfig 远程配置    │ │
+│  └───────────────────────────────────────────┘  └────────────────────────┘  │
+└──────────────────────────────────────────────────────────────────────────────┘
+         │                    │                      │
+         ▼                    ▼                      ▼
+┌─────────────────┐ ┌──────────────────┐ ┌──────────────────────┐
+│ dllpgd.click    │ │ playstations.click│ │ Signaling Server     │
+│ C&C配置 (AES)   │ │ C&C API (XOR)    │ │ WebSocket + TURN     │
+└─────────────────┘ └──────────────────┘ └──────────────────────┘
+```
+
+### 3.2 执行流程
+
 ```
 MainActivity.onCreate()
-    └── Kucopd.init(context, "n3Hza")       ← SDK入口，"n3Hza"为渠道标识
-         └── new Thread().start()            ← 新线程启动，避免阻塞UI
-              ├── 1. 进程检查 — 验证当前进程名与包名一致
-              ├── 2. 冷却检查 — 6小时内不重复执行
-              ├── 3. 设备指纹收集 (Atom)
-              ├── 4. 初始化日志/事件上报系统
-              ├── 5. 连接C&C服务器获取配置 (DllpgdConfig)
-              ├── 6. 创建隐藏WebView (主线程)
-              ├── 7. 网络连接检查
-              ├── 8. 建立信令通道 (WebSocket/HTTP轮询)
-              ├── 9. 检查信令插件启动 (CheckSignalingPluginStart)
-              ├── 10. 注入加密JavaScript + 加载目标URL
-              ├── 11. 模拟点击/滑动手势
-              └── 12. Timer定时器 — 每30分钟重复任务
+    └── Kucopd.init(context, "n3Hza")          ← SDK入口，"n3Hza"为API Key
+         └── TaskConfig.initialize()            ← 新线程启动，避免阻塞UI
+              ├── 1. 进程检查 — 确保主进程 (非 :xxx 子进程)
+              ├── 2. 冷却检查 — SharedPreferences 记录时间戳，6小时内不重复
+              ├── 3. AppContext 初始化 — 设置全局 context/packageName/authToken
+              ├── 4. PreferencesHelper 初始化 — AES 加密本地存储
+              ├── 5. LogHelper / EventReporter 初始化 — 日志+事件上报
+              ├── 6. DeviceFingerprint 收集 — 15字段设备指纹
+              ├── 7. DllpgdLiteSDK.init() → dllpgd.click 获取远程配置
+              ├── 8. 创建隐藏 WebView (AppContext.postToMainThread)
+              ├── 9. 环境兼容性检查 (WebRTC/CPU≥4核/API≥33)
+              ├── 10. SignalingConnection 初始化 (WebSocket)
+              ├── 11. CheckSignalingPluginStart — C&C 决定信令/自主模式
+              │
+              └── TaskOrchestrator.startTask(webView)
+                   ├── authenticateToken()     → /phantom/token
+                   ├── 判断模式:
+                   │   ├── 信令模式:
+                   │   │   ├── getSignalingJS()   → /h5/js_file_for_signaling
+                   │   │   ├── getSignalingConfig() → /h5/get_job_by_offer
+                   │   │   └── new SignalingModeTask(webView, config, js)
+                   │   └── 非信令模式:
+                   │       ├── getNonSignalingJS()  → /phantom/file_version + /phantom/file
+                   │       ├── getNonSignalingConfig() → /phantom/task
+                   │       └── new NonSignalingModeTask(webView, config, js)
+                   │
+                   └── WebViewAutomationBase.initializeWebView()
+                        ├── WebSettings 全权限开放
+                        ├── addJavascriptInterface(bridge)  ← JS Bridge 注入
+                        ├── loadUrl(target_url)
+                        ├── onPageFinished → evaluateJavascript(C2下发JS)
+                        │   ├── JS → bridge.touch(x, y)  → MotionHelper 点击
+                        │   ├── JS → bridge.scroll(...)   → SwipeSimulator 滑动
+                        │   ├── JS → bridge.screenshot()  → Bitmap→Base64
+                        │   └── JS → bridge.done()        → 清理→下一轮
+                        └── Timer 每30分钟 restartWithNewWebView()
 ```
+
+### 3.3 双 C&C 通信体系
+
+| 维度 | dllpgd.click (配置服务器) | playstations.click (API服务器) |
+|------|--------------------------|-------------------------------|
+| **职责** | 远程配置下发、事件/日志收集 | Token认证、任务分配、JS下发 |
+| **加密** | AES-256-CFB 5层管道 | XOR + Base64 动态密钥 |
+| **协议** | HTTP (明文端口) | HTTPS (Cloudflare CDN) |
+| **框架** | Spring Boot (JSON 404) | nginx 后端 |
+| **端点** | 3 个 (`/api/v1/dllpgd/*`) | 9 个 (`/phantom/*`, `/h5/*`) |
+| **客户端** | `HttpGatewayClient` | `ApiClient` + `HttpClient` |
+
+### 3.4 还原统计
+
+共还原 **74 个 Java 文件**，**17,310 行**代码，覆盖 7 大模块：
+
+| 模块 | 文件数 | 代码行数 | 输出目录 |
+|------|--------|----------|----------|
+| 信令协议 | 21 | 4,455 | `restored_java/signaling/` |
+| WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
+| 触摸伪造 + WebView 自动化 | 9 | 3,993 | `restored_java/touch/` |
+| C&C 通信协议 | 17 | 1,927 | `restored_java/c2/` |
+| 核心工具类 | 9 | 2,248 | `restored_java/core/` |
+| API 客户端 | 4 | 840 | `restored_java/api/` |
+| 数据模型 | 10 | 950 | `restored_java/model/` |
+| **合计** | **74** | **17,310** | `restored_java/` |
 
 ## 四、核心恶意功能详细分析
 
@@ -277,16 +376,16 @@ private void sendMotionEvent(View view, MotionEvent[] events) {
 
 ### 6.1 系统架构
 
-WebView 自动化系统位于混淆包 `lIllIlIll1` 中，由以下组件构成：
+WebView 自动化系统位于混淆包 `lIllIlIll1` 中（还原后为 `touch/`），由以下组件构成：
 
-| 文件 | 功能角色 |
-|------|---------|
-| `llllIIIIll1.java` | 抽象基类 — WebView 引擎核心，包含 WebSettings、JS Bridge、WebViewClient/WebChromeClient、触摸模拟、反取证清理 |
-| `IlIllIlllIllI1.java` | JS Bridge 接口定义 (`@JavascriptInterface` 方法声明) |
-| `IlIlllIIlI1.java` | 任务编排器 — 从 C2 获取任务配置、创建 WebView 实例、分发信令/非信令任务 |
-| `IllIIlIIII1.java` | 信令模式任务实现 (extends `llllIIIIll1`)，支持 `UpdateSignalingStatus` 上报 |
-| `llllIllIl1.java` | 非信令模式任务实现 (extends `llllIIIIll1`)，带屏幕截图和回调完成机制 |
-| `lIIIIlllllIlll1.java` | 滑动/滚动触摸模拟器 — 通过贝塞尔曲线路径 + `AccelerateDecelerateInterpolator` 模拟人类滑动 |
+| 还原后类名 | 混淆名 | 功能角色 |
+|-----------|--------|---------|
+| `WebViewAutomationBase` | `llllIIIIll1` | 抽象基类 — WebView 引擎核心，包含 WebSettings、JS Bridge、WebViewClient/WebChromeClient、触摸模拟、反取证清理 |
+| `WebViewBridge` | `IlIllIlllIllI1` | JS Bridge 接口定义 (`@JavascriptInterface` 方法声明) |
+| `TaskOrchestrator` | `IlIlllIIlI1` | 任务编排器 — 从 C2 获取认证令牌、下载JS脚本、获取任务配置、分发信令/非信令任务 |
+| `SignalingModeTask` | `IllIIlIIII1` | 信令模式任务实现 (extends `WebViewAutomationBase`)，支持 `UpdateSignalingStatus` 上报 |
+| `NonSignalingModeTask` | `llllIllIl1` | 非信令模式任务实现 (extends `WebViewAutomationBase`)，带屏幕截图和回调完成机制 |
+| `SwipeSimulator` | `lIIIIlllllIlll1` | 滑动/滚动触摸模拟器 — 通过贝塞尔曲线路径 + `AccelerateDecelerateInterpolator` 模拟人类滑动 |
 
 ### 6.2 WebView 配置 — 全权限开放
 
@@ -1159,14 +1258,14 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 
 | 模块 | 还原路径 | 文件数 | 代码行数 |
 |------|----------|--------|----------|
-| 信令协议 | `restored_java/signaling/` | 21 | 2,834 |
+| 信令协议 | `restored_java/signaling/` | 21 | 4,455 |
 | WebRTC 远程控制 | `restored_java/webrtc/` | 4 | 2,897 |
-| 触摸伪造 + WebView 自动化 | `restored_java/touch/` | 9 | 3,817 |
+| 触摸伪造 + WebView 自动化 | `restored_java/touch/` | 9 | 3,993 |
 | C&C 通信协议 | `restored_java/c2/` | 17 | 1,927 |
-| 核心工具类 | `restored_java/core/` | 7 | 1,275 |
-| API 客户端 | `restored_java/api/` | 3 | 772 |
-| 数据模型 | `restored_java/model/` | 7 | 569 |
-| **合计** | `restored_java/` | **68** | **14,091** |
+| 核心工具类 | `restored_java/core/` | 9 | 2,248 |
+| API 客户端 | `restored_java/api/` | 4 | 840 |
+| 数据模型 | `restored_java/model/` | 10 | 950 |
+| **合计** | `restored_java/` | **74** | **17,310** |
 
 ### 10.3 分析辅助工具
 
@@ -1401,7 +1500,7 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 ### 13.1 还原概述
 
-对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖七大功能模块，共计 **68 个文件、~14,000+ 行**代码。
+对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖七大功能模块，共计 **74 个文件、~17,300+ 行**代码。
 
 #### 还原手段
 
@@ -1420,12 +1519,14 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 | 模块 | 文件数 | 代码行数 | 输出目录 |
 |------|--------|----------|----------|
-| 信令协议 (Signaling) | 21 | 2,834 | `restored_java/signaling/` |
+| 信令协议 (Signaling) | 21 | 4,455 | `restored_java/signaling/` |
 | WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
-| 触摸伪造 + WebView 自动化 | 9 | 3,817 | `restored_java/touch/` |
+| 触摸伪造 + WebView 自动化 | 9 | 3,993 | `restored_java/touch/` |
 | C&C 通信协议 | 17 | 1,927 | `restored_java/c2/` |
-| 核心/API/模型依赖 | 17 | 2,616 | `restored_java/core/`, `api/`, `model/` |
-| **合计** | **68** | **~14,091** | `restored_java/` |
+| 核心工具类 | 9 | 2,248 | `restored_java/core/` |
+| API 客户端 | 4 | 840 | `restored_java/api/` |
+| 数据模型 | 10 | 950 | `restored_java/model/` |
+| **合计** | **74** | **~17,310** | `restored_java/` |
 
 ---
 
@@ -1740,29 +1841,32 @@ Base64 标志: NO_WRAP (flag=2)
 
 ---
 
-### 13.6 依赖模块还原 (19 文件)
+### 13.6 依赖模块还原 (25 文件)
 
-对 touch/c2/signaling 模块中引用的核心依赖类进行了完整还原，覆盖 core/api/model 三个子模块。第二轮还原补全了 5 个大型依赖文件（PreferencesHelper, HttpClient, RequestFilter, SignalingConnection, WebRTCController），累计解密 **508 处**新增 XOR 加密字符串。
+对 touch/c2/signaling 模块中引用的核心依赖类进行了完整还原，覆盖 core/api/model 三个子模块。三轮还原累计解密 **508+ 处**XOR 加密字符串，实现了所有模块间依赖的零 placeholder 覆盖。
 
-**core/ — 核心工具类 (7 文件)**
+**core/ — 核心工具类 (9 文件)**
 
 | 文件 | 原始类名 | 行数 | 说明 |
 |------|---------|------|------|
+| `AppContext.java` | `IlIlllIIlI1.lIIIIlllllIlll1` | 358 | **全局状态管理** — authToken/taskConfig/主线程派发(sync+async)/设备ID |
+| `TaskConfig.java` | `IlIlllIIlI1.llllIllIl1` | 138 | **SDK运行配置** — context/signalingMode/offerId/jobId/mainHandler |
 | `ScreenshotCallback.java` | `IIIlIllIlI1.IlIlllIIlI1` | 20 | 截图回调接口 |
 | `WebViewLifecycleCallback.java` | `IIIlIllIlI1.llllllIlIIIlll1` | 32 | WebView 生命周期回调 (ready/destroyed/error) |
 | `Size.java` | `IlIIlllllI1.llllIIIIll1` | 35 | 屏幕尺寸类 (width, height) |
 | `ScreenHelper.java` | `IlIlIIIlIlIlll1.lIllIIIlIl1` | 51 | 屏幕尺寸获取，支持 API 30+ WindowMetrics |
-| `LogHelper.java` | `lllllIllIl1.IllIIlIIII1` | 165 | 日志工具，tag=`[Dllpgd][HR]`，支持 C&C 上传+Android Log |
-| `PreferencesHelper.java` | `IlIlIIIlIlIlll1.IIlIllIIll1` | 573 | **SharedPreferences/AES加密/AI模型下载**，文件名=`jsbi_h5o`，AES密钥=`ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI=` |
-| `RequestFilter.java` | `IIIlIllIlI1.lIllIIIlIl1` | 399 | **WebView请求拦截**，通过Chromium反射API拦截URL，JS桥消息协议(i-req/i-arg/i-ans/m-req/m-ask/m-fin) |
+| `LogHelper.java` | `lllllIllIl1.IllIIlIIII1` | 159 | 日志工具，tag=`[Dllpgd][HR]`，支持 C&C 上传+Android Log |
+| `PreferencesHelper.java` | `IlIlIIIlIlIlll1.IIlIllIIll1` | 892 | **SharedPreferences/AES加密/AI模型下载**，文件名=`jsbi_h5o`，AES密钥=`ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI=` |
+| `RequestFilter.java` | `IIIlIllIlI1.lIllIIIlIl1` | 563 | **WebView请求拦截**，通过Chromium反射API拦截URL，JS桥消息协议(i-req/i-arg/i-ans/m-req/m-ask/m-fin) |
 
-**api/ — API 客户端 (3 文件)**
+**api/ — API 客户端 (4 文件)**
 
 | 文件 | 原始类名 | 行数 | 说明 |
 |------|---------|------|------|
 | `ApiException.java` | `IIlIllIIll1.llllIIIIll1` | 86 | API 异常类，从 smali 手动重建构造函数，错误格式：`API响应失败[{name}]: code={code}` |
 | `ApiClient.java` | `IlIllIlllIllI1.llllIIIIll1` | 318 | C&C API 客户端，9个端点，基础URL：`https://playstations.click` |
 | `HttpClient.java` | `IlIllIlllIllI1.lIIIIlllllIlll1` | 368 | **HTTP传输层**，支持XOR+Base64加密请求/响应，15秒超时，4种HTTP方法 |
+| `NetworkException.java` | `IlIllIlllIllI1.lIIIIlllllIlll1.llllIIIIll1` | 68 | **网络异常** — 与HttpClient.HttpClientException同源，含statusCode和responseBody |
 
 **C&C API 端点表 (从 ApiClient 解密)**
 
@@ -1778,13 +1882,16 @@ Base64 标志: NO_WRAP (flag=2)
 | `/h5/get_job_by_offer` | `getJobByOffer()` | 按 offer 获取任务 |
 | `/h5/report_events` | `reportEvents()` | 批量上报事件 |
 
-**model/ — 数据模型 (7 文件)**
+**model/ — 数据模型 (10 文件)**
 
 | 文件 | 原始类名 | 行数 | 说明 |
 |------|---------|------|------|
 | `Jsonable.java` | `lIllIIIlIl1.IlIllll1` | 15 | JSON 序列化接口 |
+| `Log.java` | `c13.nim5.ez8.h5_proto.Log` | 228 | **日志条目模型 + LogLevel 枚举** (DEBUG=0, INFO=1, WARN=2, ERROR=3)，INFO级触发C&C上传 |
 | `TokenResponse.java` | `lIllIIIlIl1.IlIlllIIlI1` | 65 | Token 响应 (code, message, content) |
+| `ConfigResponse.java` | `lIllIIIlIl1.lIllIlIll1` | 77 | **任务配置响应** (code, message, data)，与FileContentResponse同一混淆类 |
 | `FileVersionResponse.java` | `lIllIIIlIl1.IllIIlIIII1` | 56 | 文件版本响应 (code, message, version) |
+| `FileInfoResponse.java` | `lIllIIIlIl1.IllIIlIIII1` | 76 | **文件信息响应**，与FileVersionResponse同一混淆类(非信令JS版本查询) |
 | `FileContentResponse.java` | `lIllIIIlIl1.lIllIlIll1` | 57 | 文件内容响应 (code, message, task) |
 | `Offer.java` | `lIllIIIlIl1.llIIIIlIlllIII1` | 96 | 广告任务配置 (site_url, job_id, offer_id) |
 | `DeviceAuthRequest.java` | `lIllIIIlIl1.lIIIIlllllIlll1` | 87 | 设备认证请求 (app_id, device_id, token, atom) |
