@@ -1045,11 +1045,14 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 
 | 模块 | 还原路径 | 文件数 | 代码行数 |
 |------|----------|--------|----------|
-| 信令协议 | `restored_java/signaling/` | 19 | 1,514 |
+| 信令协议 | `restored_java/signaling/` | 21 | 2,834 |
 | WebRTC 远程控制 | `restored_java/webrtc/` | 4 | 2,897 |
 | 触摸伪造 + WebView 自动化 | `restored_java/touch/` | 9 | 3,817 |
 | C&C 通信协议 | `restored_java/c2/` | 17 | 1,927 |
-| **合计** | `restored_java/` | **49** | **10,155** |
+| 核心工具类 | `restored_java/core/` | 7 | 1,275 |
+| API 客户端 | `restored_java/api/` | 3 | 772 |
+| 数据模型 | `restored_java/model/` | 7 | 569 |
+| **合计** | `restored_java/` | **68** | **14,091** |
 
 ### 10.3 分析辅助工具
 
@@ -1284,7 +1287,7 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 ### 13.1 还原概述
 
-对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖四大功能模块，共计 **49 个文件、10,155 行**代码。
+对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖七大功能模块，共计 **68 个文件、~14,000+ 行**代码。
 
 #### 还原手段
 
@@ -1303,11 +1306,12 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 | 模块 | 文件数 | 代码行数 | 输出目录 |
 |------|--------|----------|----------|
-| 信令协议 (Signaling) | 19 | 1,514 | `restored_java/signaling/` |
+| 信令协议 (Signaling) | 21 | 2,834 | `restored_java/signaling/` |
 | WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
 | 触摸伪造 + WebView 自动化 | 9 | 3,817 | `restored_java/touch/` |
 | C&C 通信协议 | 17 | 1,927 | `restored_java/c2/` |
-| **合计** | **49** | **10,155** | `restored_java/` |
+| 核心/API/模型依赖 | 17 | 2,616 | `restored_java/core/`, `api/`, `model/` |
+| **合计** | **68** | **~14,091** | `restored_java/` |
 
 ---
 
@@ -1622,7 +1626,80 @@ Base64 标志: NO_WRAP (flag=2)
 
 ---
 
-### 13.6 辅助工具
+### 13.6 依赖模块还原 (19 文件)
+
+对 touch/c2/signaling 模块中引用的核心依赖类进行了完整还原，覆盖 core/api/model 三个子模块。第二轮还原补全了 5 个大型依赖文件（PreferencesHelper, HttpClient, RequestFilter, SignalingConnection, WebRTCController），累计解密 **508 处**新增 XOR 加密字符串。
+
+**core/ — 核心工具类 (7 文件)**
+
+| 文件 | 原始类名 | 行数 | 说明 |
+|------|---------|------|------|
+| `ScreenshotCallback.java` | `IIIlIllIlI1.IlIlllIIlI1` | 20 | 截图回调接口 |
+| `WebViewLifecycleCallback.java` | `IIIlIllIlI1.llllllIlIIIlll1` | 32 | WebView 生命周期回调 (ready/destroyed/error) |
+| `Size.java` | `IlIIlllllI1.llllIIIIll1` | 35 | 屏幕尺寸类 (width, height) |
+| `ScreenHelper.java` | `IlIlIIIlIlIlll1.lIllIIIlIl1` | 51 | 屏幕尺寸获取，支持 API 30+ WindowMetrics |
+| `LogHelper.java` | `lllllIllIl1.IllIIlIIII1` | 165 | 日志工具，tag=`[Dllpgd][HR]`，支持 C&C 上传+Android Log |
+| `PreferencesHelper.java` | `IlIlIIIlIlIlll1.IIlIllIIll1` | 573 | **SharedPreferences/AES加密/AI模型下载**，文件名=`jsbi_h5o`，AES密钥=`ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI=` |
+| `RequestFilter.java` | `IIIlIllIlI1.lIllIIIlIl1` | 399 | **WebView请求拦截**，通过Chromium反射API拦截URL，JS桥消息协议(i-req/i-arg/i-ans/m-req/m-ask/m-fin) |
+
+**api/ — API 客户端 (3 文件)**
+
+| 文件 | 原始类名 | 行数 | 说明 |
+|------|---------|------|------|
+| `ApiException.java` | `IIlIllIIll1.llllIIIIll1` | 86 | API 异常类，从 smali 手动重建构造函数，错误格式：`API响应失败[{name}]: code={code}` |
+| `ApiClient.java` | `IlIllIlllIllI1.llllIIIIll1` | 318 | C&C API 客户端，9个端点，基础URL：`https://playstations.click` |
+| `HttpClient.java` | `IlIllIlllIllI1.lIIIIlllllIlll1` | 368 | **HTTP传输层**，支持XOR+Base64加密请求/响应，15秒超时，4种HTTP方法 |
+
+**C&C API 端点表 (从 ApiClient 解密)**
+
+| 端点路径 | 方法名 | 功能 |
+|---------|--------|------|
+| `/phantom/token` | `getToken()` | 设备认证获取令牌 |
+| `/phantom/task` | `getTaskConfig()` | 获取非信令任务配置 |
+| `/phantom/file_version` | `getFileVersion()` | 查询JS文件版本 |
+| `/phantom/file` | `getFileContent()` | 下载JS注入脚本 |
+| `/phantom/done` | `reportDone()` | 报告任务完成 |
+| `/h5/upload_logs_v2` | `uploadLogs()` | 批量上传日志 |
+| `/h5/js_file_for_signaling` | `getSignalingJS()` | 获取信令JS文件 |
+| `/h5/get_job_by_offer` | `getJobByOffer()` | 按 offer 获取任务 |
+| `/h5/report_events` | `reportEvents()` | 批量上报事件 |
+
+**model/ — 数据模型 (7 文件)**
+
+| 文件 | 原始类名 | 行数 | 说明 |
+|------|---------|------|------|
+| `Jsonable.java` | `lIllIIIlIl1.IlIllll1` | 15 | JSON 序列化接口 |
+| `TokenResponse.java` | `lIllIIIlIl1.IlIlllIIlI1` | 65 | Token 响应 (code, message, content) |
+| `FileVersionResponse.java` | `lIllIIIlIl1.IllIIlIIII1` | 56 | 文件版本响应 (code, message, version) |
+| `FileContentResponse.java` | `lIllIIIlIl1.lIllIlIll1` | 57 | 文件内容响应 (code, message, task) |
+| `Offer.java` | `lIllIIIlIl1.llIIIIlIlllIII1` | 96 | 广告任务配置 (site_url, job_id, offer_id) |
+| `DeviceAuthRequest.java` | `lIllIIIlIl1.lIIIIlllllIlll1` | 87 | 设备认证请求 (app_id, device_id, token, atom) |
+| `DeviceFingerprint.java` | `lIllIIIlIl1.llllIIIIll1` | 193 | 设备指纹 — 15字段全采集 (channel=`tc`) |
+
+**signaling/ — 信令与WebRTC (新增 2 文件)**
+
+| 文件 | 原始类名 | 行数 | 说明 |
+|------|---------|------|------|
+| `SignalingConnection.java` | `IlIlIIlIII1.lIIIIlllllIlll1` | 420 | **WebRTC信令连接**，WebSocket管理，SDP/ICE交换，ping机制，远程控制命令(click/scroll/text) |
+| `WebRTCController.java` | `llIIIIlIlllIII1.IllIIlIIII1` | ~1,100 | **WebRTC远程控制器**(最大文件)，PeerConnection生命周期，DataChannel命令处理，触摸/键盘模拟，JS注入，视频流(15fps)，TURN凭据 |
+
+#### 第二轮还原关键发现
+
+| 发现 | 详情 |
+|------|------|
+| **TURN服务器凭据** | `turn:101.36.120.3:3478` 和 `turn:106.75.153.105:3478`，用户名 `wumitech`，密码 `wumitech.com@123` |
+| **AES加密密钥** | `ZDgyNjEhKDk1RjBjYzExZUVAODE5XzUyNDA4QmEyNWI=` (Base64)，用于本地文件加密 |
+| **AI模型CDN** | `app-download.cn-wlcb.ufileos.com/dllpgd_plugin/ai_model/`，TFLite模型+JS模型分片 |
+| **SharedPreferences** | 文件名=`jsbi_h5o`，存储UUID、JS模型版本、首次初始化标记 |
+| **广告网络来源** | `*.doubleclick.net`、`*.googlesyndication.com`、`syndicatedsearch.goog` (请求拦截目标) |
+| **JS桥消息协议** | 类型: `i-req`/`i-arg`/`i-ans`/`m-req`/`m-ask`/`m-fin`/`stop`，JSON键: `type`/`msg`/`id` |
+| **远程控制命令** | DataChannel命令: `click`/`drag`/`dragEnd`/`scroll`/`paste`/`input`/`inputAt`/`keyInput`/`goBack`/`close`/`release` |
+| **EglBase反射** | 3种回退策略创建EGL上下文: `EglBase$-CC`、`EglBase$CC`、`EglBase` |
+| **原生库回退** | 先尝试标准加载，失败后手动 `System.loadLibrary("jingle_peerconnection_so")` |
+
+---
+
+### 13.7 辅助工具
 
 | 工具文件 | 路径 | 用途 |
 |---------|------|------|
@@ -1641,4 +1718,4 @@ def xor_decrypt(cipher_bytes, key_bytes):
     return result.decode('utf-8')
 ```
 
-通过正则表达式 `llllIIIIll1\(new byte\[\]\{...\}, new byte\[\]\{...\}\)` 匹配源码中的所有 XOR 解密调用，自动提取密文和密钥字节数组并执行解密。累计解密 **1,034+ 处**加密字符串调用。
+通过正则表达式 `llllIIIIll1\(new byte\[\]\{...\}, new byte\[\]\{...\}\)` 匹配源码中的所有 XOR 解密调用，自动提取密文和密钥字节数组并执行解密。累计解密 **1,540+ 处**加密字符串调用。
