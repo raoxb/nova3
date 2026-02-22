@@ -10,7 +10,9 @@
       "Bash(python3:*)",
       "Bash(xxd:*)",
       "Bash(wc:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(sort:*)",
+      "Bash(find:*)"
     ]
   }
 }

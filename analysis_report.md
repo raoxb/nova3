@@ -1048,7 +1048,8 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 | 信令协议 | `restored_java/signaling/` | 19 | 1,514 |
 | WebRTC 远程控制 | `restored_java/webrtc/` | 4 | 2,897 |
 | 触摸伪造 + WebView 自动化 | `restored_java/touch/` | 9 | 3,817 |
-| **合计** | `restored_java/` | **32** | **8,228** |
+| C&C 通信协议 | `restored_java/c2/` | 17 | 1,927 |
+| **合计** | `restored_java/` | **49** | **10,155** |
 
 ### 10.3 分析辅助工具
 
@@ -1283,7 +1284,7 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 ### 13.1 还原概述
 
-对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖三大功能模块，共计 **32 个文件、8,228 行**代码。
+对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖四大功能模块，共计 **49 个文件、10,155 行**代码。
 
 #### 还原手段
 
@@ -1305,7 +1306,8 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 | 信令协议 (Signaling) | 19 | 1,514 | `restored_java/signaling/` |
 | WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
 | 触摸伪造 + WebView 自动化 | 9 | 3,817 | `restored_java/touch/` |
-| **合计** | **32** | **8,228** | `restored_java/` |
+| C&C 通信协议 | 17 | 1,927 | `restored_java/c2/` |
+| **合计** | **49** | **10,155** | `restored_java/` |
 
 ---
 
@@ -1545,13 +1547,89 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 ---
 
-### 13.5 辅助工具
+### 13.5 C&C 通信协议还原 (17 文件)
+
+输出目录: `restored_java/c2/`
+
+对 `c13/nim5/ez8/h5_proto/` 包中的 17 个 C&C 通信协议类进行了完整还原，累计解密 **354 处** XOR 加密字符串。
+
+#### 核心通信类
+
+| 还原文件 | 原始混淆文件 | 行数 | XOR 字符串 | 说明 |
+|---------|-------------|------|-----------|------|
+| `HttpGatewayClient.java` | `HttpGatewayClient.java` | 452 | 39 | **核心 C2 HTTP 客户端** — 五层加密管道 (JSON→GZIP→Base64→AES-256-CFB→Base64) |
+| `DllpgdLiteSDK.java` | `DllpgdLiteSDK.java` | 121 | 37 | SDK 入口单例 — C2 域名 `dllpgd.click`，含样本数据构建辅助方法 |
+| `DllpgdConfig.java` | `DllpgdConfig.java` | 139 | 24 | C2 配置载荷 — 插件列表、会话 ID、反分析 Hook 检测栈轨迹 |
+| `H5Lite.java` | `H5Lite.java` | 32 | 1 | 轻量 SDK 门面 — 封装事件/日志上报接口 |
+
+#### 数据模型类
+
+| 还原文件 | 原始混淆文件 | 行数 | XOR 字符串 | 说明 |
+|---------|-------------|------|-----------|------|
+| `Atom.java` | `Atom.java` | 153 | 51 | **核心设备指纹** — 10 字段: deviceId, deviceInfo, version, appPackageName, appVersion, gaId, sessionId, appChannel, pluginInfos, isGeneratedBySubProcess |
+| `PluginInfo.java` | `PluginInfo.java` | 189 | 76 | **远程插件描述** — 15 字段: id, name, url, md5, className, needRun, needUpdate, delayRunSeconds, lastVersion, password, pluginStatus, endDelete, autoStartOnInit, startIndex, runInSubProcess |
+| `Log.java` | `Log.java` | 138 | 29 | 日志条目 — 含 LogLevel 枚举 (JADX 反编译失败，手动重建) |
+| `DeviceInfo.java` | `DeviceInfo.java` | 78 | 24 | 设备硬件信息 — timezone, locale, phoneTimestamp, phoneModel, androidVersion |
+| `LocalPluginInfo.java` | `LocalPluginInfo.java` | 78 | 25 | 本地插件缓存元数据 — name, version, lastUpdateTime, pluginStatus, className |
+| `Event.java` | `Event.java` | 63 | 16 | 遥测事件 — timestamp, name, desc |
+| `Vector2.java` | `Vector2.java` | 48 | 10 | 2D 坐标 — x, y |
+
+#### 请求/响应包装类
+
+| 还原文件 | 原始混淆文件 | 行数 | XOR 字符串 | 说明 |
+|---------|-------------|------|-----------|------|
+| `CommonRequest.java` | `CommonRequest.java` | 42 | 6 | 通用请求包装 — 包含 atom 字段 |
+| `CommonResponse.java` | `CommonResponse.java` | 48 | 11 | 通用响应 — code + message |
+| `GetConfigResponse.java` | `GetConfigResponse.java` | 61 | 16 | 配置响应 — code + message + dllpgdConfig |
+| `UpdateEventRequest.java` | `UpdateEventRequest.java` | 64 | 11 | 事件上报请求 — atom + events 列表 |
+| `UpdateLogRequest.java` | `UpdateLogRequest.java` | 64 | 11 | 日志上报请求 — atom + log 列表 |
+
+#### 工具类
+
+| 还原文件 | 原始混淆文件 | 行数 | XOR 字符串 | 说明 |
+|---------|-------------|------|-----------|------|
+| `JsonObjectUtils.java` | `JsonObjectUtils.java` | 157 | 2 | 反射式 JSON 序列化/反序列化工具 — 自动映射对象字段 |
+
+#### HttpGatewayClient 关键还原细节
+
+**五层加密管道** (每个 API 请求):
+```
+发送: JSON.toString() → UTF-8 → GZIP压缩 → Base64编码 → AES-256-CFB加密 → Base64编码 → HTTP POST
+```
+
+**AES 密钥派生**:
+```
+密钥种子: "GreenDay"
+派生过程: MD5("GreenDay") → 大写十六进制字符串 → UTF-8字节 → 截取/填充至32字节
+加密算法: AES/CFB/NoPadding
+IV: 随机16字节，前置于密文
+Base64 标志: NO_WRAP (flag=2)
+```
+
+**三个 API 端点**:
+| 端点路径 | 方法 | 功能 |
+|---------|------|------|
+| `/api/v1/dllpgd/getConfig` | `getConfig()` | 获取配置 (插件列表 + 反分析参数) |
+| `/api/v1/dllpgd/updateEvent` | `updateEvent()` | 上报遥测事件 |
+| `/api/v1/dllpgd/updateLog` | `updateLog()` | 上传日志条目 |
+
+**HTTP 请求头**:
+- `Content-Type: application/json`
+- `User-Agent: DllpgdLiteClient/2.0`
+- 连接超时: 10 秒，读取超时: 30 秒
+
+**aesDecryptString() 方法重建**: JADX 反编译完全失败，输出为原始字节码。基于 bytecode 指令手动重建了完整的解密逻辑: Base64 解码 → 提取 IV (前16字节) → AES-CFB 解密 → UTF-8 字符串。
+
+---
+
+### 13.6 辅助工具
 
 | 工具文件 | 路径 | 用途 |
 |---------|------|------|
 | `decrypt_all_strings.py` | `根目录` | 批量 XOR 解密器 — 提取信令/WebRTC 文件中所有加密调用并解密 |
 | `decrypt_touch_strings.py` | `根目录` | 触摸模块 XOR 解密器 — 提取 SwipeSimulator/WebViewAutomationBase/SDKInitializer 中的加密字符串 |
 | `decrypt_xor_strings.py` | `根目录` | WebView 自动化模块 XOR 解密器 — 提取 TaskOrchestrator/SignalingModeTask/NonSignalingModeTask 中的加密字符串 |
+| `decrypt_c2_strings.py` | `根目录` | C&C 通信协议 XOR 解密器 — 提取 c13/nim5/ez8/h5_proto/ 包 17 个文件中的 354 处加密字符串 |
 
 #### 解密器工作原理
 
@@ -1563,4 +1641,4 @@ def xor_decrypt(cipher_bytes, key_bytes):
     return result.decode('utf-8')
 ```
 
-通过正则表达式 `llllIIIIll1\(new byte\[\]\{...\}, new byte\[\]\{...\}\)` 匹配源码中的所有 XOR 解密调用，自动提取密文和密钥字节数组并执行解密。累计解密 **680+ 处**加密字符串调用。
+通过正则表达式 `llllIIIIll1\(new byte\[\]\{...\}, new byte\[\]\{...\}\)` 匹配源码中的所有 XOR 解密调用，自动提取密文和密钥字节数组并执行解密。累计解密 **1,034+ 处**加密字符串调用。
