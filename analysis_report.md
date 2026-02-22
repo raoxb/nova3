@@ -1021,6 +1021,8 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 
 ## 十、关键文件路径
 
+### 10.1 JADX 反编译输出 (原始混淆)
+
 | 组件 | 反编译路径 |
 |---|---|
 | 入口点 | `com/nied/MainActivity.java` → `com/nied/lduvv/Kucopd.java` |
@@ -1035,8 +1037,26 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 | 远程配置 | `c13/nim5/ez8/h5_proto/DllpgdConfig.java` |
 | WebRTC信令 | `c13/nim5/ez8/h5_proto/signaling/` |
 | WebView控制 | `lIllIlIll1/` (混淆包) |
+| WebRTC控制器 | `llIIIIlIlllIII1/` (混淆包) |
 | 点击测试页 | `assets/click_test.html` |
 | ART 性能配置 | `assets/dexopt/baseline.prof`, `assets/dexopt/baseline.profm` |
+
+### 10.2 还原后代码 (可读)
+
+| 模块 | 还原路径 | 文件数 | 代码行数 |
+|------|----------|--------|----------|
+| 信令协议 | `restored_java/signaling/` | 19 | 1,514 |
+| WebRTC 远程控制 | `restored_java/webrtc/` | 4 | 2,897 |
+| 触摸事件伪造 | `restored_java/touch/` | 6 | 2,868 |
+| **合计** | `restored_java/` | **29** | **7,279** |
+
+### 10.3 分析辅助工具
+
+| 工具 | 路径 | 用途 |
+|------|------|------|
+| XOR 批量解密器 | `decrypt_all_strings.py` | 信令/WebRTC 文件加密字符串解密 |
+| 触摸模块解密器 | `decrypt_touch_strings.py` | 触摸模块加密字符串解密 |
+| C&C 通信客户端 | `c2_client.py` | AES-256-CFB 加密协议实测工具 |
 
 ## 十一、C&C 通信协议实测验证
 
@@ -1258,3 +1278,229 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 5. **平滑触摸注入**: MotionHelper 的优化确保模拟触摸事件的时序精度，使其更难被反欺诈系统检测
 
 这种做法在合法应用中用于改善用户体验，但在此恶意 SDK 中被用于确保欺诈操作的高效执行。
+
+## 十三、混淆代码还原
+
+### 13.1 还原概述
+
+对 JADX 反编译输出的关键恶意类进行了系统性还原，将混淆后不可读的代码转换为结构清晰、命名规范的 Java 源文件。还原工作涵盖三大功能模块，共计 **29 个文件、7,279 行**代码。
+
+#### 还原手段
+
+| 技术 | 说明 |
+|------|------|
+| **XOR 批量解密** | 编写 Python 解密引擎 (`decrypt_all_strings.py`)，批量提取并解密所有 `llllIIIIll1(new byte[]{...}, new byte[]{...})` 调用中的加密字符串 |
+| **类名还原** | 将 `lIIIIlllllIlll1`、`llllIIIIll1` 等混淆名替换为 `SwipeSimulator`、`WebViewAutomationBase` 等描述性名称 |
+| **字段名还原** | 将 `f508llllIIIIll1`、`f482IlIlllIIlI1` 等 JADX 自动重命名字段替换为 `webView`、`controlPoint` 等语义化名称 |
+| **内部类还原** | 将 9 个匿名/混淆内部类还原为 `CleanupRunnable`、`UploadTimerTask`、`CustomWebViewClient` 等 |
+| **失败方法重建** | 对 JADX 反编译失败的方法 (`getRandomScrollMotionEvents`, 686 条指令) 基于上下文逻辑重建 |
+| **AndroidX 常量替换** | 将 `InputDeviceCompat.SOURCE_TOUCHSCREEN` 等引用替换为原始字面量 `0x1002` |
+| **JADX 产物清理** | 移除 `/* loaded from: classes.dex */`、`/* JADX INFO: ... */` 等反编译器注释 |
+| **Javadoc 注释** | 为所有类和关键方法添加 Javadoc，标注恶意行为意图 |
+
+#### 还原统计
+
+| 模块 | 文件数 | 代码行数 | 输出目录 |
+|------|--------|----------|----------|
+| 信令协议 (Signaling) | 19 | 1,514 | `restored_java/signaling/` |
+| WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
+| 触摸事件伪造 | 6 | 2,868 | `restored_java/touch/` |
+| **合计** | **29** | **7,279** | `restored_java/` |
+
+---
+
+### 13.2 信令协议还原 (19 文件)
+
+**原始路径**: `jadx_output/sources/c13/nim5/ez8/h5_proto/signaling/`
+**还原路径**: `restored_java/signaling/`
+
+这些类定义了 WebRTC 信令通信的完整消息体系。原始代码中所有 JSON 字段名、内容类型常量均通过 XOR 加密存储，运行时解密。
+
+#### 文件清单与类名映射
+
+| 还原文件名 | 原始混淆类名 | 行数 | 功能说明 |
+|-----------|-------------|------|---------|
+| `JsonSerializable.java` | `IlIllll1` | 18 | JSON 序列化接口，定义 `toJSONObject()` 方法 |
+| `SignalingRequest.java` | `IlIlIIlIII1` | 179 | 客户端→服务端信令请求封装，含 5 种内容类型鉴别器 |
+| `SignalingResponse.java` | `llllIllIl1` | 187 | 服务端→客户端信令响应封装，含 6 种内容类型鉴别器 |
+| `ControlCommand.java` | `IIlIllIIll1` | 156 | 远控命令封装 (click/scroll/input 三种子类型) |
+| `SDPOffer.java` | `llIIIIlIlllIII1` | 63 | SDP Offer 消息 (type + sdp 字段) |
+| `SDPAnswer.java` | `lIIIIlllllIlll1` | 63 | SDP Answer 消息 (type + sdp 字段) |
+| `ICECandidate.java` | `llIIllIl1` | 78 | ICE 候选消息 (sdpMid + sdpMLineIndex + sdp) |
+| `ClickEvent.java` | `lIllIIIlIl1` | 63 | 点击事件 (normalizedX/Y, 0.0-1.0 归一化坐标) |
+| `ScrollEvent.java` | `lIllIlIll1` | 63 | 滚动事件 (deltaX/deltaY 滚动增量) |
+| `TextInput.java` | `llllllIlIIIlll1` | 49 | 文本输入事件 (text 字段) |
+| `ConnectionStatus.java` | `IlIlllIIlI1` | 48 | 连接状态 (status 字符串) |
+| `Ping.java` | `IlIllIlllIllI1` | 49 | 心跳请求 (timestamp 时间戳) |
+| `Pong.java` | `IllIIlIIII1` | 49 | 心跳响应 (timestamp 时间戳) |
+| `Done.java` | `IIIlIllIlI1` | 33 | 会话结束信号 |
+| `Error.java` | `lllllIllIl1` | 63 | 错误消息 (code + message) |
+| `UpdateSignalingStatusRequest.java` | `C0017llllIIIIll1` | 135 | 信令状态上报请求 (含 6 种状态枚举) |
+| `UpdateSignalingStatusResponse.java` | `C0018llllIllIl1` | 63 | 信令状态上报响应 |
+| `CheckSignalingPluginStartRequest.java` | `IlIlIIIlIlIlll1` | 49 | 信令插件启动检查请求 |
+| `CheckSignalingPluginStartResponse.java` | `IIlIllIIll1` | 106 | 信令插件启动检查响应 (含 WebSocket URL、STUN/TURN 配置) |
+
+#### 关键解密常量示例
+
+| 上下文 | 加密形式 | 解密结果 |
+|--------|----------|----------|
+| SignalingRequest 内容类型 | XOR 加密 | `sdp_offer`, `sdp_answer`, `ice_candidate`, `control`, `ping` |
+| SignalingResponse 内容类型 | XOR 加密 | `sdp_offer`, `sdp_answer`, `ice_candidate`, `status`, `pong`, `done` |
+| ControlCommand 命令类型 | XOR 加密 | `click`, `scroll`, `input` |
+| UpdateSignalingStatus 状态 | XOR 加密 | `IN_LANDING`, `SIGNALING_CONNECTED`, `SIGNALING_FAILED`, `PEER_CONNECTED`, `PEER_DISCONNECTED`, `PEER_FAILED` |
+| ICECandidate 字段名 | XOR 加密 | `sdpMid`, `sdpMLineIndex`, `sdp` |
+| CheckSignalingPluginStartResponse | XOR 加密 | `ws_url`, `stun_url`, `turn_url`, `turn_username`, `turn_credential` |
+
+---
+
+### 13.3 WebRTC 远程控制还原 (4 文件)
+
+**原始路径**: `jadx_output/sources/llIIIIlIlllIII1/`
+**还原路径**: `restored_java/webrtc/`
+
+这些类实现了完整的 WebRTC 远程控制系统，包括 PeerConnection 管理、屏幕捕获、视频编码和控制命令处理。
+
+#### 文件清单与类名映射
+
+| 还原文件名 | 原始混淆类名 | 行数 | 功能说明 |
+|-----------|-------------|------|---------|
+| `WebRTCController.java` | `IllIIlIIII1` | 1,465 | WebRTC 主控制器：PeerConnection 生命周期管理、SDP/ICE 协商、DataChannel 控制命令分发、屏幕截图上行 |
+| `VirtualDisplayCapturer.java` | `llllIllIl1` | 623 | VirtualDisplay 屏幕捕获器：通过 MediaProjection + ImageReader 实时捕获屏幕帧，转换为 WebRTC 视频流 |
+| `BitmapFrameCapturer.java` | `llllIIIIll1` | 348 | Bitmap 截屏备用方案：当 VirtualDisplay 不可用时，通过 `View.draw(Canvas)` 截取 WebView 内容 |
+| `SafeVideoDecoderFactory.java` | `lIIIIlllllIlll1` | 461 | 安全视频解码器工厂：包装 WebRTC 原生 `DefaultVideoDecoderFactory`，添加分辨率限制 (1280×720) 和异常保护 |
+
+#### 关键还原内容
+
+**WebRTCController.java** (1,465 行) — 核心文件，包含：
+- **62 个字段**全部从混淆名还原为语义化名称 (如 `f287llllIIIIll1` → `peerConnection`, `f279IlIlIIlIII1` → `webView`)
+- **8 个内部类**还原: `PeerConnectionObserver`, `SDPObserver`, `DataChannelObserver`, `CreateAnswerCallback`, `SetLocalDescCallback`, `SetRemoteDescCallback`, `SignalingHandler`, `ScreenCaptureCallback`
+- **所有 XOR 加密字符串**替换为明文 (ICE server URLs、DataChannel 名称 `"dataChannel"`、日志消息等)
+- 完整的 WebRTC 连接建立流程、远程控制命令处理链、屏幕捕获与编码逻辑
+
+**VirtualDisplayCapturer.java** (623 行) — 包含：
+- MediaProjection + VirtualDisplay + ImageReader 的完整屏幕捕获管道
+- `onImageAvailable` 回调：Image → Bitmap → YUV420 → WebRTC VideoFrame 转换
+- 帧率控制、分辨率自适应、资源清理逻辑
+
+---
+
+### 13.4 触摸事件伪造还原 (6 文件)
+
+**原始路径**: `jadx_output/sources/com/nied/` 和 `jadx_output/sources/lIllIlIll1/`
+**还原路径**: `restored_java/touch/`
+
+这些类实现了高度仿真的触摸事件伪造系统和 WebView 自动化引擎。
+
+#### 文件清单与类名映射
+
+| 还原文件名 | 原始混淆类名 | 行数 | 功能说明 |
+|-----------|-------------|------|---------|
+| `MotionHelper.java` | `com.nied.MotionHelper` | 917 | 触摸事件伪造核心：构造包含贝塞尔曲线轨迹、四段压力分布、9轴传感器数据的 MotionEvent 序列 |
+| `RandomHelper.java` | `com.nied.RandomHelper` | 98 | 高精度随机数工具：支持 10^14~10^17 精度的随机浮点，确保压力/坐标值不重复 |
+| `SwipeSimulator.java` | `lIllIlIll1.lIIIIlllllIlll1` | 189 | 贝塞尔曲线滑动模拟器：使用 AccelerateDecelerateInterpolator + Path.quadTo() 生成自然滑动手势 |
+| `WebViewBridge.java` | `lIllIlIll1.IlIllIlllIllI1` | 138 | JavaScript Bridge 接口：定义 16 个 @JavascriptInterface 方法 (touch/scroll/screenshot/done/upload_event 等) |
+| `WebViewAutomationBase.java` | `lIllIlIll1.llllIIIIll1` | 1,475 | WebView 自动化基类：WebSettings 全权限配置、JS 注入、请求拦截/代理、触摸分发、事件上报、反取证清理 |
+| `SDKInitializer.java` | `com.nied.lduvv.Kucopd` | 51 | SDK 入口点：后台线程启动 WebView 自动化管道 |
+
+#### MotionHelper.java 还原要点
+
+- **JADX 反编译失败方法重建**: `getRandomScrollMotionEvents()` (原始 686 条 Dalvik 指令) 因过于复杂导致 JADX 反编译失败。基于调用上下文、参数类型、返回值和相关方法的逻辑，手动重建了完整实现
+- **AndroidX 常量解引用**: `InputDeviceCompat.SOURCE_TOUCHSCREEN` → `0x1002`，`PathInterpolatorCompat.MAX_NUM_POINTS` → `3000`，`AccessibilityNodeInfoCompat.EXTRA_DATA_TEXT_CHARACTER_LOCATION_ARG_MAX_LENGTH` → `20000`
+- **30+ 方法**完整保留：`clickViewExact`、`clickViewByPoint`、`getScrollMotionEventPoints` (贝塞尔采样)、`getRandomPressure` (四段分布)、`getPointerCoords` (9轴模拟)、`sendMotionEvent` (分发器) 等
+
+#### SwipeSimulator.java 还原要点
+
+| 原始混淆名 | 还原名称 | 类型 | 说明 |
+|-----------|----------|------|------|
+| `f485llllIIIIll1` | `webView` | WebView | 目标 WebView |
+| `f484lIIIIlllllIlll1` | `startPoint` | PointF | 滑动起点 |
+| `f486llllIllIl1` | `endPoint` | PointF | 滑动终点 |
+| `f482IlIlllIIlI1` | `controlPoint` | PointF | 贝塞尔控制点 (随机计算) |
+| `f483IllIIlIIII1` | `duration` | long | 滑动持续时间 (ms) |
+| `f487llllllIlIIIlll1` | `isRunning` | boolean | 运行状态标志 |
+| 内部类 `llllIIIIll1` | `DispatchTouchRunnable` | Runnable | 主线程触摸事件分发器 |
+
+解密的 XOR 字符串：`"dispatchTouchEvent occur error: "`、`"[times]:"`, `" [duration]:"`, `"[pos]:"`, `" x "`, `", flag:"`, `", distance: "`
+
+#### WebViewAutomationBase.java 还原要点
+
+这是整个恶意 SDK 中最复杂的单一类文件 (原始 789 行混淆代码 → 1,475 行还原代码)。
+
+**字段还原** (15 个):
+
+| 原始混淆名 | 还原名称 | 类型 | 说明 |
+|-----------|----------|------|------|
+| `f493lllIlIIIlI1` | `INJECTED_JS_SCRIPT` | static String | XOR 加密的 JavaScript 注入脚本 (数千字节) |
+| `f508llllIIIIll1` | `webView` | WebView | 目标 WebView 实例 |
+| `f503lIIIIlllllIlll1` | `configJson` | JSONObject | C&C 下发的任务配置 |
+| `f502IllIIlIIII1` | `jsBridgeName` | String | JS Bridge 名称 (解密值: `"Android"`) |
+| `f498IlIlIIlIII1` | `taskConfig` | TaskConfig | 任务配置对象 |
+| `f496IlIIlllllI1` | `pendingEvents` | List\<String\> | 待上传事件队列 |
+| `f510lllllIllIl1` | `pendingLogs` | List\<String\> | 待上传日志队列 |
+| `f506llIIIIlIlllIII1` | `uploadTimer` | Timer | 定时上传 Timer (每 4 秒) |
+| `f501IlIllll1` | `currentSwipe` | SwipeSimulator | 当前活跃的滑动模拟 |
+| `f504lIllIIIlIl1` | `interceptEnabled` | boolean | 请求拦截开关 |
+| `f499IlIllIlllIllI1` | `elapsedTime` | long | 累计执行时间 |
+| `f500IlIlllIIlI1` | `pageStartTime` | long | 页面加载开始时间 |
+| `f505lIllIlIll1` | `tickCounter` | long | 上传计数器 |
+| `f497IlIlIIIlIlIlll1` | `isFirstRun` | boolean | 首次运行标志 |
+| `f511llllllIlIIIlll1` | `loadedUrls` | HashSet\<String\> | 已加载 URL 集合 |
+
+**内部类还原** (9 个):
+
+| 原始混淆名 | 还原名称 | 基类 | 功能 |
+|-----------|----------|------|------|
+| `IlIlIIlIII1` | `CleanupRunnable` | Runnable | 移除 JS Bridge 接口并销毁 WebView |
+| `IlIllIlllIllI1` | `InjectScriptRunnable` | Runnable | 通过 `evaluateJavascript()` 注入 JS 脚本 |
+| `IllIIlIIII1` | `CustomChromeClient` | WebChromeClient | 静默吞没 console 输出，追踪加载进度 |
+| `lIIIIlllllIlll1` | `StartUploadRunnable` | Runnable | 启动事件/日志上传定时器 |
+| `lIllIIIlIl1` | `TimerCancelRunnable` | Runnable | 60 秒后取消上传 Timer |
+| `C0019llllIIIIll1` | `NoOpCallback` | Callback | 空回调实现 |
+| `llllIllIl1` | `UploadTimerTask` | TimerTask | 每 4 秒批量上传事件/日志至 C&C |
+| `llllllIlIIIlll1` | `TouchRunnable` | Runnable | 在指定坐标分发触摸事件 |
+| `IlIlllIIlI1` | `CustomWebViewClient` | WebViewClient | 请求拦截、JS 注入、本地文件服务 |
+
+**关键解密字符串** (58 个，部分示例):
+
+| 上下文 | 解密结果 | 用途 |
+|--------|----------|------|
+| 构造函数 | `"Android"` | JS Bridge 注册名称 |
+| 构造函数 | `"offer"` | 任务配置 JSON 键 |
+| 构造函数 | `"sdk_iframe_access"` | 请求拦截开关配置键 |
+| InjectScriptRunnable | `"注入js"` | 日志：注入 JavaScript |
+| InjectScriptRunnable | `"javascript:void((function(){var s=..."` | JS 注入模板前缀 |
+| UploadTimerTask | `"start upload events"` | 事件上传日志 |
+| UploadTimerTask | `"start upload logs"` | 日志上传日志 |
+| CustomWebViewClient | `".*\\(cdn\|static\\).*\\.[mc]?js\\b"` | CDN/静态 JS 文件拦截正则 |
+| CustomWebViewClient | `"User-Agent"` | HTTP 请求头名称 |
+| serveLocalFile | `"sdk/"` | 本地 AI 模型文件路径前缀 |
+| serveLocalFile | `"返回本地AI模型文件: "` | 日志：返回本地 AI 模型 |
+| serveLocalFile | `"AI模型文件不存在: "` | 日志：AI 模型文件不存在 |
+| clearBrowserData | `"=======clear=======clear=======clear======"` | 反取证清理日志 |
+| onFirstPageLoad | `"last_show_time"` | SharedPreferences 键名 |
+
+**INJECTED_JS_SCRIPT 静态字段**：这是一个巨大的 XOR 加密字节数组 (行 53-60，数千字节)，解密后为完整的 JavaScript 脚本，功能包括：
+- 创建 `postMessage` / `onmessage` 通信桥接
+- XPath 表达式求值器，定位页面元素并返回边界矩形
+- 原生 `postMessage` 函数伪装 (重写 `toString`、`valueOf`、`name`、`length` 属性使其看起来像原生实现)
+
+---
+
+### 13.5 辅助工具
+
+| 工具文件 | 路径 | 用途 |
+|---------|------|------|
+| `decrypt_all_strings.py` | `根目录` | 批量 XOR 解密器 — 提取信令/WebRTC 文件中所有加密调用并解密 |
+| `decrypt_touch_strings.py` | `根目录` | 触摸模块 XOR 解密器 — 提取 SwipeSimulator/WebViewAutomationBase/SDKInitializer 中的加密字符串 |
+
+#### 解密器工作原理
+
+```python
+def xor_decrypt(cipher_bytes, key_bytes):
+    result = bytearray(len(cipher_bytes))
+    for i in range(len(cipher_bytes)):
+        result[i] = (cipher_bytes[i] & 0xFF) ^ (key_bytes[i % len(key_bytes)] & 0xFF)
+    return result.decode('utf-8')
+```
+
+通过正则表达式 `llllIIIIll1\(new byte\[\]\{...\}, new byte\[\]\{...\}\)` 匹配源码中的所有 XOR 解密调用，自动提取密文和密钥字节数组并执行解密。累计解密 **680+ 处**加密字符串调用。

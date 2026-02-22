@@ -9,7 +9,8 @@
       "Bash(/opt/jadx/bin/jadx:*)",
       "Bash(python3:*)",
       "Bash(xxd:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(cat:*)"
     ]
   }
 }
