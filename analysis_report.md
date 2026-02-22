@@ -983,7 +983,121 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 | SDP 协商失败 | 统一调用 `llIIllIl1()` 触发错误处理 |
 | 信令层异常 | 记录日志 → 触发完全重建 |
 
-### 8.10 资源清理
+### 8.10 WebRTC 完整连接流程
+
+#### 端到端连接架构
+
+```
+┌─────────────┐     ①HTTP POST      ┌──────────────────────┐
+│  被感染手机   │ ─────────────────→  │  C&C API 服务器       │
+│  (nova2 SDK) │ ←─────────────────  │  playstations.click   │
+│              │   返回 token+offer  │  (Spring Boot)        │
+└──────┬───────┘                    └──────────────────────┘
+       │
+       │ ②WebSocket 连接 (ws://信令服务器)
+       ▼
+┌──────────────────────┐
+│  信令服务器 (Signaling) │  ← C&C 动态下发 URL
+│  WebSocket/gRPC       │
+└──────┬───────────────┘
+       │
+       │ ③SDP/ICE 交换 (通过 WebSocket 中转)
+       │
+       ▼
+┌──────────────────────┐         ┌──────────────────┐
+│  TURN 中继服务器       │ ←─────→ │  攻击者控制端      │
+│  101.36.120.3:3478   │  WebRTC  │  (Web 远程操控)    │
+│  106.75.153.105:3478 │  P2P/中继 │                  │
+│  (UCloud 香港/上海)   │         │                  │
+└──────────────────────┘         └──────────────────┘
+       ↕ WebRTC
+┌──────────────────────┐
+│  被感染手机            │
+│  ├─ VideoTrack (上行)  │  ← 15fps WebView 屏幕捕获
+│  └─ DataChannel (双向) │  ← 远程控制指令
+└──────────────────────┘
+```
+
+#### 时序图
+
+```
+手机端                    C&C API服务器              信令服务器              TURN服务器             攻击者控制端
+  │                         │                        │                      │                      │
+  │── POST /phantom/token →│                        │                      │                      │
+  │←─ token ──────────────│                        │                      │                      │
+  │                         │                        │                      │                      │
+  │── POST /phantom/task ─→│                        │                      │                      │
+  │←─ taskConfig ─────────│                        │                      │                      │
+  │                         │                        │                      │                      │
+  │── CheckPluginStart ───→│                        │                      │                      │
+  │←─ {run:true, offerId} │                        │                      │                      │
+  │                         │                        │                      │                      │
+  │── POST /h5/get_job ──→│                        │                      │                      │
+  │←─ {offer, ws_url, ────│                        │                      │                      │
+  │    turn_url, creds}    │                        │                      │                      │
+  │                         │                        │                      │                      │
+  │── POST /h5/js_file ──→│                        │                      │                      │
+  │←─ signaling JS ────── │                        │                      │                      │
+  │                         │                        │                      │                      │
+  │                         │  WebSocket connect     │                      │                      │
+  │──────────────────────────────────────────────→│                      │                      │
+  │                         │     ←── connected ──→ │                      │                      │
+  │── join(room) ──────────────────────────────→│                      │                      │
+  │                         │                        │                      │                      │
+  │  创建 PeerConnection    │                        │                      │                      │
+  │  配置 TURN 服务器       │                        │                      │                      │
+  │  启动视频捕获 (15fps)    │                        │                      │                      │
+  │                         │                        │                      │                      │
+  │                         │                        │←─ SDP Offer ────────────────────────────── │
+  │←─── SDP Offer (via WS) ─────────────────────│                      │                      │
+  │                         │                        │                      │                      │
+  │  setRemoteDescription   │                        │                      │                      │
+  │  createAnswer           │                        │                      │                      │
+  │  setLocalDescription    │                        │                      │                      │
+  │                         │                        │                      │                      │
+  │── SDP Answer (via WS) ──────────────────────→│                      │                      │
+  │                         │                        │── SDP Answer ────────────────────────────→│
+  │                         │                        │                      │                      │
+  │── ICE Candidate ────────────────────────────→│                      │                      │
+  │                         │                        │── ICE Candidate ──────────────────────→ │
+  │←── ICE Candidate ───────────────────────────│                      │                      │
+  │                         │                        │                      │                      │
+  │  addIceCandidate        │                        │                      │                      │
+  │                         │                        │                      │                      │
+  │══════════════ WebRTC P2P/TURN 连接建立 ═══════════════════════════│                      │
+  │                         │                        │                      │                      │
+  │←──────── DataChannel: {"type":"ready"} ──────────────────────── TURN ──────────────────── │
+  │──────── {"type":"pong","message":"pong_from_device"} ──────── TURN ──────────────────→│
+  │                         │                        │                      │                      │
+  │←──── {"action":"click","x":0.5,"y":0.3} ──── TURN ──────────────────────────────────── │
+  │  执行 dispatchTouchEvent │                        │                      │                      │
+  │                         │                        │                      │                      │
+  │═══════ VideoTrack: WebView 实时屏幕画面 (15fps) ═════════════ TURN ──────────────────→│
+  │                         │                        │                      │                      │
+```
+
+#### 各阶段详细说明
+
+| 阶段 | 组件 | 代码位置 | 说明 |
+|------|------|---------|------|
+| **① 认证+获取任务** | ApiClient | `api/ApiClient.java` | 手机向 `playstations.click` 发送 POST 请求获取 token 和任务配置 |
+| **② 信令连接** | SignalingConnection | `signaling/SignalingConnection.java` | 手机用 WebSocket 连接信令服务器，发送 join 加入房间，维持 ping/pong 心跳 |
+| **③ PeerConnection 创建** | WebRTCController | `webrtc/WebRTCController.java` | 手机创建 PeerConnection，硬编码 TURN 服务器配置 |
+| **④ SDP/ICE 交换** | WebRTCController + SignalingConnection | 两个文件协作 | 通过信令服务器中转 SDP Offer/Answer 和 ICE Candidate |
+| **⑤ 媒体通道建立** | WebRTCController | `webrtc/WebRTCController.java` | WebRTC P2P 连接建立（通过 TURN 中继），开启 VideoTrack + DataChannel |
+| **⑥ 远程控制** | WebRTCController | `webrtc/WebRTCController.java` | 攻击者通过 DataChannel 发送控制指令，手机执行触摸/键盘/JS 注入 |
+
+#### 关键安全特征
+
+| 特征 | 说明 |
+|------|------|
+| **手机主动外连** | 所有连接由手机发起，无需开放端口，NAT/防火墙无法阻止 |
+| **TURN 必须** | 手机在 NAT 后面，TURN 作为中继转发所有 WebRTC 流量 |
+| **攻击者实时看屏** | WebView 内容 15fps 录屏推流，攻击者实时观察受害者页面 |
+| **远程操作** | DataChannel 传输触摸/键盘指令，等同远程桌面控制 |
+| **多层冗余** | 两台 TURN 服务器 + ICE 重连机制，确保连接稳定 |
+
+### 8.11 资源清理
 
 **方法**: `IIIlIllIlI1()` (行 876-957)
 
@@ -1719,3 +1833,490 @@ def xor_decrypt(cipher_bytes, key_bytes):
 ```
 
 通过正则表达式 `llllIIIIll1\(new byte\[\]\{...\}, new byte\[\]\{...\}\)` 匹配源码中的所有 XOR 解密调用，自动提取密文和密钥字节数组并执行解密。累计解密 **1,540+ 处**加密字符串调用。
+
+## 十四、服务端架构还原分析
+
+> 注：由于没有服务端源码，以下架构完全从客户端代码逆向推导。
+
+### 14.1 服务端组件总览
+
+该恶意软件的完整后端基础设施由 **四类服务器** 组成，分别承担不同角色：
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                        服务端基础设施全景                                 │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌───────────────────────┐    ┌───────────────────────┐                │
+│  │  ① C&C 配置服务器       │    │  ② C&C API 服务器       │                │
+│  │  dllpgd.click          │    │  playstations.click    │                │
+│  │  (Spring Boot / Java)  │    │  (未知框架)              │                │
+│  │  AWS EC2 us-east-1     │    │  XOR+Base64 加密通信    │                │
+│  │  AES-256-CFB 加密通信   │    │                        │                │
+│  └───────────┬───────────┘    └───────────┬───────────┘                │
+│              │                            │                             │
+│     设备注册/配置下发/日志收集       认证/任务分发/JS下发/事件上报            │
+│              │                            │                             │
+│  ┌───────────┴────────────────────────────┴───────────┐                │
+│  │              被感染手机 (nova2 SDK)                    │                │
+│  └───────────┬────────────────────────────┬───────────┘                │
+│              │                            │                             │
+│     WebSocket 信令                  WebRTC 媒体/数据                     │
+│              │                            │                             │
+│  ┌───────────┴───────────┐    ┌───────────┴───────────┐                │
+│  │  ③ 信令服务器           │    │  ④ TURN 中继服务器       │                │
+│  │  (WebSocket/gRPC)      │    │  101.36.120.3:3478    │                │
+│  │  C&C 动态下发 URL       │    │  106.75.153.105:3478  │                │
+│  │  SDP/ICE 中转           │    │  UCloud (香港/上海)    │                │
+│  └───────────────────────┘    │  用户: wumitech        │                │
+│                                │  密码: wumitech.com@123│                │
+│  ┌───────────────────────┐    └───────────────────────┘                │
+│  │  ⑤ CDN 文件服务器       │                                             │
+│  │  UCloud UFile OSS      │                                             │
+│  │  app-download.cn-wlcb  │                                             │
+│  │  .ufileos.com          │                                             │
+│  │  AI模型/JS脚本分发       │                                             │
+│  └───────────────────────┘                                             │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### 14.2 服务器 ①：C&C 配置服务器 (dllpgd.click)
+
+#### 推断技术栈
+
+| 属性 | 值 | 推断依据 |
+|------|---|---------|
+| **域名** | `dllpgd.click` | XOR 解密 DllpgdLiteSDK 常量 |
+| **框架** | Spring Boot (Java) | HTTP 探测返回 Whitelabel Error Page |
+| **部署** | AWS EC2 (us-east-1) | DNS: 18.204.68.18, 18.206.233.238 |
+| **协议** | HTTP (80 端口) | HTTPS (443) 连接拒绝 |
+| **加密** | AES-256-CFB (5 层管道) | HttpGatewayClient 代码分析 |
+| **认证** | User-Agent: `DllpgdLiteClient/2.0` | XOR 解密 HTTP 头 |
+| **当前状态** | 存活但 API 已下线 (404) | 实测验证 |
+
+#### 必须实现的 API 端点
+
+```
+Spring Boot Application
+├── Controller Layer
+│   ├── POST /api/v1/dllpgd/getConfig
+│   │   ├── 接收: AES-256-CFB 加密的 {atom: Atom} 请求
+│   │   ├── 解密: Base64→AES→Base64→GZIP→JSON
+│   │   ├── 处理: 查询设备配置 + 插件列表
+│   │   └── 返回: GetConfigResponse {code, message, dllpgdConfig}
+│   │            dllpgdConfig: {plugins[], sessionId, hookPkgNameStackTraces[],
+│   │                          hookPackageManagerStackTraces[], fixPackageName}
+│   │
+│   ├── POST /api/v1/dllpgd/updateEvent
+│   │   ├── 接收: 加密的 {atom, events[]} 请求
+│   │   ├── events[]: [{timestamp, name, desc}, ...]
+│   │   └── 返回: CommonResponse {code, message}
+│   │
+│   └── POST /api/v1/dllpgd/updateLog
+│       ├── 接收: 加密的 {atom, log[]} 请求
+│       ├── log[]: [{timestamp, level, tag, message}, ...]
+│       └── 返回: CommonResponse {code, message}
+│
+├── Encryption Layer (AES-256-CFB)
+│   ├── 密钥: MD5("GreenDay").toUpperCase() = "66987CE7134F63EF7EE6F5024AD312B3"
+│   ├── 模式: AES/CFB/NoPadding
+│   ├── IV: 随机 16 字节，前置于密文
+│   └── 管道: Base64 decode → AES decrypt → Base64 decode → GZIP decompress → JSON parse
+│
+├── Database Layer
+│   ├── devices 表: 设备指纹存储 (deviceId, deviceInfo, appPackageName, gaId, ...)
+│   ├── plugins 表: 远程插件管理 (url, md5, className, password, needRun, ...)
+│   ├── events 表: 遥测事件存储
+│   ├── logs 表: 日志存储
+│   └── sessions 表: 会话管理
+│
+└── Plugin Management
+    ├── 插件 .dex 文件托管
+    ├── AES-ECB 加密打包
+    ├── MD5 校验码计算
+    └── 版本管理 + 按设备灰度下发
+```
+
+#### 请求/响应加解密流程
+
+```
+客户端发送:
+  Atom JSON → UTF-8 bytes → GZIP → Base64(NO_WRAP) → AES-256-CFB(随机IV) → Base64(NO_WRAP) → HTTP POST body
+
+服务端接收:
+  HTTP POST body → Base64 decode → AES-256-CFB decrypt(提取前16字节IV) → Base64 decode → GZIP decompress → JSON parse → Atom
+
+服务端响应 (逆向):
+  Response JSON → UTF-8 bytes → GZIP → Base64 → AES-256-CFB(随机IV) → Base64 → HTTP Response body
+
+客户端解密:
+  HTTP Response body → Base64 decode → AES decrypt → Base64 decode → GZIP decompress → JSON parse → GetConfigResponse
+```
+
+### 14.3 服务器 ②：C&C API 服务器 (playstations.click)
+
+#### 推断技术栈
+
+| 属性 | 值 | 推断依据 |
+|------|---|---------|
+| **域名** | `playstations.click` | ApiClient.BASE_URL 常量 |
+| **协议** | HTTPS | URL 前缀 `https://` |
+| **加密** | XOR+Base64 (HttpClient 层) | HttpClient.encryptionKey 动态设置 |
+| **认证** | Token-based | /phantom/token 返回 auth token |
+| **User-Agent** | 动态构建 | PreferencesHelper.buildUserAgent() |
+
+#### 必须实现的 API 端点
+
+```
+API Server Application
+├── /phantom/ — 核心控制接口
+│   │
+│   ├── POST /phantom/token                 ← 设备认证
+│   │   ├── 请求: DeviceAuthRequest {app_id, device_id, token, atom}
+│   │   │         atom: DeviceFingerprint (15字段)
+│   │   ├── 处理: 验证设备身份 → 生成/刷新 auth token
+│   │   ├── 处理: 下发 XOR 加密密钥 (encryptionKey)
+│   │   └── 响应: TokenResponse {code, message, content(=token)}
+│   │
+│   ├── POST /phantom/task                  ← 任务配置获取
+│   │   ├── 请求: DeviceAuthRequest (含 token)
+│   │   ├── 处理: 根据设备指纹匹配广告任务
+│   │   └── 响应: FileContentResponse {code, message, task(=JS配置JSON)}
+│   │
+│   ├── POST /phantom/file_version          ← JS 文件版本查询
+│   │   ├── 请求: DeviceAuthRequest
+│   │   ├── 处理: 查询当前 JS 注入脚本版本号
+│   │   └── 响应: FileVersionResponse {code, message, version}
+│   │
+│   ├── POST /phantom/file                  ← JS 文件内容下载
+│   │   ├── 请求: DeviceAuthRequest
+│   │   ├── 处理: 返回完整 JS 注入脚本内容
+│   │   └── 响应: TokenResponse {code, message, content(=JS代码)}
+│   │
+│   └── POST /phantom/done                  ← 任务完成报告
+│       ├── 请求: DoneRequest {app_id, device_id, token, apiKey, offerId, result, atom}
+│       ├── 处理: 记录任务完成状态 → 计费/统计
+│       └── 响应: 空 (无返回体)
+│
+├── /h5/ — H5 信令与事件接口
+│   │
+│   ├── POST /h5/js_file_for_signaling      ← 信令 JS 获取
+│   │   ├── 请求: SignalingJSRequest {offerStr, token, app_id, device_id, platform("tc"), atom}
+│   │   ├── 处理: 根据 offer 返回信令模式专用 JS
+│   │   └── 响应: JSON (JS 文件内容)
+│   │
+│   ├── POST /h5/get_job_by_offer           ← 按 offer 获取 job
+│   │   ├── 请求: JobByOfferRequest {apiKey, offerId, token, app_id, device_id, platform, atom}
+│   │   ├── 处理: 查找 offer 关联的任务 → 返回 site_url + 信令配置
+│   │   ├── 响应: FileContentResponse {code, message, task}
+│   │   │         task 包含: site_url, job_id, offer_id
+│   │   └── 响应额外字段 (推断): ws_url, stun_url, turn_url, turn_username, turn_credential
+│   │
+│   ├── POST /h5/upload_logs_v2             ← 批量日志上传
+│   │   ├── 请求: LogUploadRequest {token, app_id, device_id, platform, apiKey, offerId, events[], atom}
+│   │   ├── 处理: 存储日志记录
+│   │   └── 响应: 空
+│   │
+│   └── POST /h5/report_events              ← 批量事件上报
+│       ├── 请求: EventReportRequest {token, app_id, device_id, platform, apiKey, offerId, events[], atom}
+│       ├── 处理: 存储遥测事件
+│       └── 响应: 空
+│
+├── Encryption Layer (XOR + Base64)
+│   ├── 加密密钥: 服务端在 /phantom/token 响应中动态下发
+│   ├── 请求加密: JSON bytes → XOR(key) → Base64 → 发送
+│   ├── 响应加密: Base64 decode → XOR(key) → JSON parse
+│   └── 密钥为空时: 明文 JSON 传输
+│
+├── 任务调度系统
+│   ├── Offer 管理: 广告任务配置 (site_url, job_id, offer_id)
+│   ├── 信令/非信令模式分发: 根据 CheckSignalingPluginStart 结果决定
+│   ├── JS 脚本版本管理: 支持增量更新
+│   └── 设备配额/频率控制: 6小时冷却机制(客户端)
+│
+└── 数据存储
+    ├── 设备注册信息 (15字段设备指纹)
+    ├── 认证 Token 管理
+    ├── Offer/Job 配置
+    ├── JS 脚本仓库 (多版本)
+    └── 事件/日志数据仓库
+```
+
+### 14.4 服务器 ③：信令服务器 (WebSocket)
+
+#### 推断技术栈
+
+| 属性 | 值 | 推断依据 |
+|------|---|---------|
+| **协议** | WebSocket (ws:// 或 wss://) | SignalingConnection 使用 WebSocket 客户端 |
+| **URL** | C&C 动态下发 | CheckSignalingPluginStartResponse.ws_url |
+| **消息格式** | JSON (类 Protobuf 结构) | SignalingRequest/Response 类定义 |
+| **心跳** | Ping/Pong 机制，30 秒间隔 | SignalingConfig.pingIntervalSec = 30L |
+| **超时** | 60 秒无响应断连 | WebSocket 基类超时配置 |
+
+#### 必须实现的功能
+
+```
+WebSocket Signaling Server
+│
+├── 连接管理
+│   ├── WebSocket 握手 + 认证 (auth token)
+│   ├── 房间管理 (join/leave)
+│   ├── 心跳检测: Ping → Pong (30 秒间隔)
+│   └── 连接丢失检测: 60 秒超时 → close(1006)
+│
+├── 消息路由 (手机 ↔ 攻击者控制端)
+│   │
+│   ├── 手机 → 服务器 (SignalingRequest)
+│   │   ├── type: "sdp_answer"      → 转发 SDP Answer 给控制端
+│   │   ├── type: "ice_candidate"   → 转发 ICE Candidate 给控制端
+│   │   └── type: "ping"            → 回复 Pong
+│   │
+│   ├── 控制端 → 服务器 → 手机 (SignalingResponse)
+│   │   ├── type: "sdp_offer"       → 转发 SDP Offer 给手机
+│   │   ├── type: "ice_candidate"   → 转发 ICE Candidate 给手机
+│   │   ├── type: "status"          → 连接状态通知
+│   │   ├── type: "pong"            → 心跳响应
+│   │   └── type: "done"            → 会话结束
+│   │
+│   └── 服务器 → 手机 (主动推送)
+│       └── type: "error"           → 错误通知 (code + message)
+│
+├── HTTP RPC 端点 (非 WebSocket)
+│   │
+│   ├── CheckSignalingPluginStart
+│   │   ├── 请求: {atom: Atom}
+│   │   ├── 处理: 判断设备是否应启动信令模式
+│   │   └── 响应: {code, message, run, offerId, jobId}
+│   │
+│   └── UpdateSignalingStatus
+│       ├── 请求: {atom, jobId, status, url}
+│       ├── status 枚举:
+│       │   ├── IN_LANDING          — 正在加载着陆页
+│       │   ├── SIGNALING_CONNECTED — 信令连接已建立
+│       │   ├── SIGNALING_FAILED    — 信令连接失败
+│       │   ├── PEER_CONNECTED      — WebRTC 对等连接已建立
+│       │   ├── PEER_DISCONNECTED   — WebRTC 断开
+│       │   └── PEER_FAILED         — WebRTC 连接失败
+│       └── 响应: {code, message}
+│
+└── 攻击者控制端接口 (Web UI 推断)
+    ├── 设备列表查看 (在线/离线)
+    ├── 发起 SDP Offer (建立远程控制)
+    ├── 发送 ICE Candidate
+    ├── 实时屏幕查看 (WebRTC VideoTrack)
+    └── 发送控制命令 (通过 DataChannel)
+        ├── click(normalizedX, normalizedY)
+        ├── drag(startX, startY, endX, endY)
+        ├── scroll(deltaX, deltaY)
+        ├── paste(text) / input(text)
+        ├── keyInput(keyCode)
+        ├── goBack / close / release
+        └── screenshot (请求截图)
+```
+
+#### 信令消息格式
+
+```json
+// SignalingRequest (手机 → 服务器)
+{
+  "atom": { /* 设备指纹 */ },
+  "content": {
+    "type": "sdp_answer",       // 内容类型鉴别器
+    "sdp_answer": {             // 具体载荷
+      "type": "answer",
+      "sdp": "v=0\r\n..."
+    }
+  }
+}
+
+// SignalingResponse (服务器 → 手机)
+{
+  "content": {
+    "type": "sdp_offer",        // 内容类型鉴别器
+    "sdp_offer": {
+      "type": "offer",
+      "sdp": "v=0\r\n..."
+    }
+  }
+}
+```
+
+### 14.5 服务器 ④：TURN 中继服务器
+
+#### 服务器配置
+
+| 属性 | 服务器 1 | 服务器 2 |
+|------|---------|---------|
+| **IP** | 101.36.120.3 | 106.75.153.105 |
+| **端口** | 3478 (UDP) | 3478 (UDP) |
+| **协议** | TURN (RFC 5766) | TURN (RFC 5766) |
+| **用户名** | wumitech | wumitech |
+| **密码** | wumitech.com@123 | wumitech.com@123 |
+| **云服务商** | UCloud | UCloud |
+| **地理位置** | 香港 | 上海 |
+| **STUN 探测** | UDP 开放，无 STUN 响应 | STUN Binding Success ✓ |
+| **运营域名** | wumitech.com | wumitech.com |
+
+#### TURN 服务器在攻击链中的作用
+
+```
+TURN 服务器功能:
+├── NAT 穿透: 手机在 NAT 后面，无法直连 → TURN 作为中继
+├── 流量中转: 所有 WebRTC 媒体流和数据通道流量经 TURN 转发
+│   ├── VideoTrack (上行): 手机 → TURN → 攻击者 (15fps 屏幕画面)
+│   └── DataChannel (双向): 攻击者 → TURN → 手机 (控制指令)
+├── 双机冗余: 两台服务器提供高可用性
+│   ├── ICE 协商时同时探测两台
+│   └── 主服务器不可用时自动切换
+└── 凭据认证: 静态 long-term credentials (非 TURN REST API)
+```
+
+### 14.6 服务器 ⑤：CDN 文件分发
+
+| 属性 | 值 |
+|------|---|
+| **域名** | `app-download.cn-wlcb.ufileos.com` |
+| **云服务** | UCloud UFile (对象存储) |
+| **路径** | `/dllpgd_plugin/ai_model/` |
+| **内容** | TFLite AI 模型 + JS 模型分片 |
+| **用途** | 广告元素识别模型，辅助自动化点击 |
+
+### 14.7 服务端实现流程总览
+
+#### 完整攻击链时序
+
+```
+阶段 1: 设备注册与配置 (C&C 配置服务器)
+──────────────────────────────────────
+  手机 ── POST /api/v1/dllpgd/getConfig ──→ dllpgd.click
+  服务端:
+    1. 解密请求: Base64 → AES-256-CFB → Base64 → GZIP → JSON
+    2. 解析 Atom 设备指纹
+    3. 查询设备配置:
+       - 分配 sessionId
+       - 查询适用的插件列表 (needRun, needUpdate)
+       - 设置反分析参数 (hookPkgNameStackTraces)
+    4. 加密响应: JSON → GZIP → Base64 → AES → Base64
+    5. 返回 GetConfigResponse {plugins[], sessionId, ...}
+
+阶段 2: 认证与任务分配 (C&C API 服务器)
+──────────────────────────────────────
+  手机 ── POST /phantom/token ──→ playstations.click
+  服务端:
+    1. 解析 DeviceAuthRequest (含 15 字段设备指纹)
+    2. 验证/注册设备
+    3. 生成 auth token
+    4. 下发 XOR 加密密钥 (后续通信加密)
+    5. 返回 TokenResponse {code:0, content: "token_xxx"}
+
+  手机 ── POST /phantom/task ──→ playstations.click
+  服务端:
+    1. 根据设备指纹匹配广告任务
+    2. 确定信令/非信令模式
+    3. 返回任务配置 (site_url, offer_id, job_id)
+
+阶段 3: 信令模式判定
+──────────────────
+  手机 ── CheckSignalingPluginStart ──→ 信令服务器
+  服务端:
+    1. 评估设备是否适合远程控制 (网络质量、设备能力)
+    2. 分配 offerId + jobId
+    3. 返回 {code:0, run:true/false, offerId, jobId}
+
+  (如果 run=true) 手机 ── POST /h5/get_job_by_offer ──→ playstations.click
+  服务端:
+    1. 查找 offer 关联的完整任务配置
+    2. 返回: site_url + 信令服务器 WebSocket URL + TURN/STUN 配置
+
+阶段 4: JS 注入脚本获取
+────────────────────
+  手机 ── POST /phantom/file_version ──→ playstations.click
+  服务端:
+    1. 查询当前 JS 版本号
+    2. 返回 FileVersionResponse {version: "v2.3.1"}
+
+  (版本不同时) 手机 ── POST /phantom/file ──→ playstations.click
+  服务端:
+    1. 返回最新 JS 注入脚本 (完整内容)
+    2. 客户端缓存到本地文件
+
+阶段 5: 信令连接建立
+──────────────────
+  手机 ── WebSocket connect ──→ 信令服务器
+  服务端:
+    1. 验证 auth token
+    2. 创建 WebSocket 会话
+    3. 将设备加入待控制队列
+    4. 通知攻击者控制端: 新设备上线
+
+  手机 ── join(room) ──→ 信令服务器
+  服务端:
+    1. 将设备绑定到房间
+    2. 启动心跳监控 (30 秒 ping/pong)
+
+阶段 6: WebRTC 连接建立 (攻击者发起)
+──────────────────────────────────
+  攻击者 ── SDP Offer ──→ 信令服务器 ──→ 手机
+  服务端 (信令):
+    1. 收到攻击者的 SDP Offer
+    2. 转发给目标设备
+
+  手机 ── SDP Answer ──→ 信令服务器 ──→ 攻击者
+  服务端 (信令):
+    1. 收到设备的 SDP Answer
+    2. 转发给攻击者
+
+  双方 ── ICE Candidate ──→ 信令服务器 ──→ 对方
+  服务端 (信令):
+    1. 双向转发 ICE 候选
+    2. 直到 WebRTC P2P/TURN 连接建立
+
+  TURN 服务器:
+    1. 收到 TURN Allocate 请求
+    2. 验证 long-term credentials (wumitech / wumitech.com@123)
+    3. 分配中继地址 (Relayed Transport Address)
+    4. 建立双向中继通道
+
+阶段 7: 远程控制会话
+──────────────────
+  (WebRTC 连接建立后，直接 P2P/TURN 通信，不再经过信令服务器)
+
+  手机 ── VideoTrack ──→ TURN ──→ 攻击者
+    15fps WebView 屏幕画面实时推流
+
+  攻击者 ── DataChannel ──→ TURN ──→ 手机
+    控制指令: click/drag/scroll/paste/input/keyInput/goBack/close/release
+
+  手机 ── UpdateSignalingStatus ──→ 信令服务器
+    状态上报: IN_LANDING → PEER_CONNECTED → DONE
+
+阶段 8: 任务完成与循环
+──────────────────
+  手机 ── POST /phantom/done ──→ playstations.click
+  服务端:
+    1. 记录任务完成 (offerId, result)
+    2. 更新计费统计
+
+  手机 ── POST /h5/report_events ──→ playstations.click
+  手机 ── POST /h5/upload_logs_v2 ──→ playstations.click
+  服务端:
+    1. 批量存储事件/日志
+    2. 用于运营分析和欺诈效果统计
+
+  等待 30 分钟后 → 回到阶段 2 开始新任务
+```
+
+### 14.8 服务端关键设计特征
+
+| 特征 | 说明 |
+|------|------|
+| **双 C&C 分离** | 配置服务器 (dllpgd.click) 和 API 服务器 (playstations.click) 分离部署，降低单点被封风险 |
+| **动态加密密钥** | XOR 加密密钥由服务端在 token 阶段动态下发，每个设备可使用不同密钥 |
+| **信令 URL 动态下发** | 信令服务器 URL 不硬编码，由 C&C 在 get_job_by_offer 中返回，便于快速更换 |
+| **TURN 凭据静态** | TURN 使用 long-term credentials (硬编码在客户端)，简化部署但安全性较低 |
+| **多云部署** | AWS (美东) + UCloud (香港/上海)，跨云跨地域分散基础设施 |
+| **插件系统** | 通过 C&C 配置服务器可动态下发加密的 .dex 插件，实现远程代码更新 |
+| **A/B 模式** | 信令/非信令双模式设计，服务端可按设备灵活选择操作模式 |
+| **反取证协作** | 客户端 92% 概率清理痕迹，服务端不在响应中留存可识别标记 |

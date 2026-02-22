@@ -13,7 +13,11 @@
       "Bash(cat:*)",
       "Bash(sort:*)",
       "Bash(find:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(echo === TURN Server 1: 101.36.120.3:3478 ===:*)",
+      "Bash(echo:*)",
+      "Bash(head:*)",
+      "Bash(xargs ls -lh)"
     ]
   }
 }
