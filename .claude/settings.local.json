@@ -8,7 +8,8 @@
       "Bash(pip install:*)",
       "Bash(/opt/jadx/bin/jadx:*)",
       "Bash(python3:*)",
-      "Bash(xxd:*)"
+      "Bash(xxd:*)",
+      "Bash(wc:*)"
     ]
   }
 }
