@@ -38,7 +38,11 @@
       "Bash(sleep 1:*)",
       "Bash(kill:*)",
       "Bash(pgrep:*)",
-      "Bash(ss:*)"
+      "Bash(ss:*)",
+      "Bash(\":*)",
+      "Bash(echo === Downloading 4 files ===:*)",
+      "Bash(echo === File listing ===:*)",
+      "Bash(echo === SecurityTrails History ===:*)"
     ]
   }
 }

@@ -2103,7 +2103,10 @@ Spring Boot Application
 | 属性 | 值 | 推断依据 |
 |------|---|---------|
 | **域名** | `playstations.click` | ApiClient.BASE_URL 常量 |
-| **DNS** | `172.67.144.175`, `104.21.87.166` (Cloudflare) | DNS 解析实测 |
+| **Cloudflare 代理 IP** | `172.67.144.175`, `104.21.87.166` | DNS 解析实测 (Cloudflare Anycast) |
+| **真实源站 IP** | `118.193.47.123` | RapidDNS 历史记录 + 直连验证（详见 §14.12） |
+| **源站归属** | **UCloud 香港** (118.193.47.0/24) | WHOIS: UCLOUD INFORMATION TECHNOLOGY (HK) LIMITED |
+| **源站基础设施** | **Kubernetes** (nginx-ingress-controller) | HTTPS 默认证书: "Kubernetes Ingress Controller Fake Certificate" |
 | **CDN/WAF** | Cloudflare (HSTS, CORS `*`) | 响应头 `Server: cloudflare`, CF-RAY |
 | **后端 Web 服务器** | nginx | 404 页面返回 `nginx` |
 | **协议** | HTTPS (TLS, 强制 HSTS) | strict-transport-security: max-age=15724800 |
@@ -2111,7 +2114,7 @@ Spring Boot Application
 | **认证** | Token-based | /phantom/token 返回 auth token |
 | **User-Agent** | 动态构建 | PreferencesHelper.buildUserAgent() |
 | **CORS** | 全开放 (`*`) | access-control-allow-origin: * |
-| **当前状态** | 域名存活，API 端点已下线 (404 nginx) | 实测 9 个端点均返回 404 |
+| **当前状态** | 域名存活，API 端点已下线 (404 nginx) | Cloudflare 代理和源站直连均返回 404 |
 
 #### 必须实现的 API 端点
 
@@ -2518,3 +2521,262 @@ TURN 服务器功能:
 | **状态** | 服务器存活，API 下线 (Spring Boot 404) | 域名存活，API 下线 (nginx 404) |
 
 **结论**: 两台 C&C 服务器的后端 API 均已停用。`playstations.click` 使用了 Cloudflare 作为 CDN 和 WAF，安全配置更完善（HSTS、TLS）；其 CORS 全开放 (`access-control-allow-origin: *`) 表明后端曾需要支持浏览器端的跨域请求（可能有 Web 管理面板/攻击者控制端）。`dllpgd.click` 则直接暴露 EC2 IP，安全性较低。
+
+### 14.10 关联域名探测：inboxexpertiesworkflow.agency
+
+#### 探测背景
+
+发现域名 `inboxexpertiesworkflow.agency` 与 `playstations.click` 解析到相同的 Cloudflare Anycast IP，对其进行了完整探测。
+
+#### DNS 与基础设施
+
+| 项目 | playstations.click | inboxexpertiesworkflow.agency |
+|------|-------------------|-------------------------------|
+| **DNS A 记录** | `172.67.144.175`, `104.21.87.166` | `172.67.144.175`, `104.21.87.166` |
+| **Cloudflare NS** | `anton.ns.cloudflare.com` / `rafe.ns.cloudflare.com` | `gabriel.ns.cloudflare.com` / `anastasia.ns.cloudflare.com` |
+| **注册商** | Amazon Registrar (2025-02-25) | 隐私保护 (`.agency` TLD WHOIS 不可查) |
+| **MX 记录** | 无 | `inboxexpertiesworkflow-agency.mail.protection.outlook.com` |
+| **TXT 记录** | 无 | `MS=ms63568025` (Microsoft 365 域验证) + SPF |
+| **根路径行为** | nginx 404 | **301** → `https://www.inboxexpertise.com/` |
+
+#### API 端点探测
+
+对全部 9 个 C&C API 端点（`/phantom/*` + `/h5/*`）使用相同的 DeviceAuthRequest 格式进行探测：
+
+| 端点 | HTTP 状态 | 响应 |
+|------|----------|------|
+| `POST /phantom/token` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /phantom/task` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /phantom/file_version` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /phantom/file` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /phantom/done` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /h5/js_file_for_signaling` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /h5/get_job_by_offer` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /h5/upload_logs_v2` | **301** | 重定向至 `www.inboxexpertise.com` |
+| `POST /h5/report_events` | **301** | 重定向至 `www.inboxexpertise.com` |
+
+跟随重定向后，`www.inboxexpertise.com` 对 POST 请求返回 **405 Not Allowed** (nginx)。使用 Android User-Agent (`Dalvik/2.1.0`) 发送请求行为不变，仍然 301 重定向。
+
+#### 重定向目标分析：inboxexpertise.com
+
+| 项目 | 值 |
+|------|---|
+| **IP** | `142.132.133.55` (非 Cloudflare，独立 IP) |
+| **注册商** | Spaceship, Inc. (2024-10-04 创建) |
+| **NS** | `ethan.ns.cloudflare.com` / `galilea.ns.cloudflare.com` |
+| **内容** | "InboxExpertise - Email Deliverability Solutions" 营销站 |
+| **技术栈** | nginx + Vue.js SPA |
+
+#### 结论
+
+`inboxexpertiesworkflow.agency` **不是 C&C API 服务器的替代域名**：
+
+1. **无后端 API**：所有路径均 301 重定向至营销站，无 nginx 404（对比 `playstations.click` 有实际 nginx 后端返回 404）。
+2. **不同 Cloudflare NS 对**：两个域名使用不同的 Cloudflare 名称服务器对，说明位于不同的 Cloudflare 账户/区域。
+3. **共享 IP 是 Cloudflare Anycast 特性**：`172.67.144.175` / `104.21.87.166` 是 Cloudflare 共享 Anycast IP，挂载了数百个不相关域名（经反向查询确认），IP 相同不能证明同一运营者。
+4. **配置了 Microsoft 365 邮箱**：有 MX 记录指向 Outlook，TXT 记录含 Microsoft 域验证标识 `MS=ms63568025`，推测用于邮件基础设施（钓鱼/社工邮件发送）。
+
+### 14.11 全量域名 WHOIS 与基础设施关联分析
+
+#### 域名注册信息对比
+
+| 域名 | 注册商 | 创建时间 | 到期时间 | Cloudflare NS 对 |
+|------|--------|---------|---------|-----------------|
+| `dllpgd.click` | Amazon Registrar | 2024-12-16 | 2026-12-16 | lovisa + jack |
+| `playstations.click` | Amazon Registrar | 2025-02-25 | 2027-02-25 | anton + rafe |
+| `inboxexpertiesworkflow.agency` | 不可查 (隐私保护) | — | — | gabriel + anastasia |
+| `inboxexpertise.com` | Spaceship, Inc. | 2024-10-04 | 2026-10-04 | ethan + galilea |
+
+**关联分析**：
+- `dllpgd.click` 和 `playstations.click` 均通过 **Amazon Registrar** 注册 — 这是两个已确认 C&C 域名之间的强关联指标
+- 两者均使用 ICANN Temporary Specification 隐私保护，无可见注册人信息
+- `inboxexpertiesworkflow.agency` 和 `inboxexpertise.com` 使用不同注册商，与前两者无直接注册关联
+
+#### 完整基础设施拓扑（含探测状态）
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    Nova2 恶意软件基础设施全景 (2026-02-24 探测)                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌──────────────────────────┐    ┌──────────────────────────┐              │
+│  │  ① C&C 配置服务器          │    │  ② C&C API 服务器          │              │
+│  │  dllpgd.click             │    │  playstations.click       │              │
+│  │  Amazon Registrar         │    │  Amazon Registrar         │              │
+│  │  AWS EC2 us-east-1        │    │  Cloudflare CDN+WAF       │              │
+│  │  Spring Boot (Java)       │    │  ↓ 源站: 118.193.47.123   │              │
+│  │  AES-256-CFB 5层管道      │    │  UCloud 香港 + Kubernetes  │              │
+│  │  状态: IP 已回收           │    │  nginx-ingress-controller │              │
+│  │  (→ pruna.ai 占用)        │    │  XOR+Base64 动态密钥      │              │
+│  └──────────────────────────┘    │  状态: API 下线 (404)     │              │
+│                                   └──────────────────────────┘              │
+│                                                                             │
+│  ┌──────────────────────────┐    ┌──────────────────────────┐              │
+│  │  ③ TURN 中继服务器 (×2)    │    │  ④ CDN 文件服务器          │              │
+│  │  101.36.120.3:3478 (HK)  │    │  app-download.cn-wlcb    │              │
+│  │  106.75.153.105:3478 (SH) │    │  .ufileos.com            │              │
+│  │  UCloud 云服务             │    │  UCloud UFile OSS        │              │
+│  │  凭据: wumitech /         │    │  AI 模型 + JS 脚本        │              │
+│  │    wumitech.com@123       │    │  状态: 仍然存活 (200 OK)  │              │
+│  │  状态: 部分存活            │    │  文件: 3.6MB TFLite 模型  │              │
+│  └──────────────────────────┘    └──────────────────────────┘              │
+│                                                                             │
+│  ┌──────────────────────────┐                                              │
+│  │  ⑤ 关联域名                │                                              │
+│  │  inboxexpertiesworkflow   │                                              │
+│  │    .agency                │                                              │
+│  │  同 Cloudflare Anycast IP │                                              │
+│  │  301 → inboxexpertise.com │                                              │
+│  │  配有 M365 邮箱            │                                              │
+│  │  用途推测: 钓鱼邮件发送    │                                              │
+│  └──────────────────────────┘                                              │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 云服务商分布
+
+| 云服务商 | 组件 | 地域 | 服务 |
+|---------|------|------|------|
+| **AWS** | C&C 配置服务器 (dllpgd.click) | us-east-1 (弗吉尼亚) | EC2 (IP 已回收) |
+| **AWS** | 域名注册 (dllpgd.click + playstations.click) | — | Route 53 Registrar |
+| **Cloudflare** | C&C API CDN/WAF (playstations.click) | Anycast | CDN + WAF + DNS |
+| **Cloudflare** | 关联域名 (inboxexpertiesworkflow.agency) | Anycast | DNS + 重定向 |
+| **UCloud** | **C&C API 源站** (118.193.47.123) | **香港** | **云主机 (Kubernetes)** |
+| **UCloud** | TURN 中继 #1 (101.36.120.3) | 香港 | 云主机 |
+| **UCloud** | TURN 中继 #2 (106.75.153.105) | 上海 | 云主机 |
+| **UCloud** | CDN 文件分发 (ufileos.com) | 华北 (cn-wlcb) | UFile 对象存储 |
+| **Microsoft** | 邮件 (inboxexpertiesworkflow.agency) | — | Microsoft 365 / Exchange Online |
+
+#### 关键发现
+
+1. **核心基础设施集中在 UCloud（优刻得）**：C&C API 源站（香港）、TURN 中继服务器（香港 + 上海）和 AI 模型 CDN 均部署在 UCloud，`wumitech` 为 TURN 凭据用户名，同时也是 TURN 服务器的运营域名标识。
+2. **C&C 域名使用 AWS + Cloudflare + UCloud 多层架构**：域名通过 Amazon Registrar 注册，API 服务器使用 Cloudflare 做 CDN/WAF 防护，真实源站部署在 UCloud 香港 Kubernetes 集群。配置服务器曾直连 AWS EC2（IP 已回收）。
+3. **CDN 资源仍然存活**：截至 2026-02-24，`app-download.cn-wlcb.ufileos.com` 上的 AI 模型文件仍可下载（HTTP 200，TFLite 模型 3.6MB），表明 UCloud OSS 资源未被清理。
+4. **攻击者可能涉及邮件钓鱼**：`inboxexpertiesworkflow.agency` 配置了 Microsoft 365 邮箱基础设施（MX + SPF + 域验证），域名含 "inbox expertise workflow" 关键词，重定向到邮件投递营销站，暗示同一运营者可能同时从事邮件钓鱼活动。
+5. **反向 IP 查询不可用于 Cloudflare 域名关联**：`172.67.144.175` / `104.21.87.166` 是 Cloudflare Anycast 共享 IP，反查返回数百个不相关域名，且三个已知域名使用不同的 NS 对，无法仅凭 IP 建立关联。
+6. **C&C 配置服务器 IP 已被回收**：`dllpgd.click` 原 AWS EC2 IP（`18.204.68.18`、`18.206.233.238`）已被重新分配给 `hal-backend.pruna.ai`（AI 模型优化平台），原始 C&C 基础设施已完全关闭。
+
+### 14.12 Cloudflare 源站 IP 溯源 (playstations.click)
+
+`playstations.click` 使用 Cloudflare CDN/WAF 代理，DNS 解析返回 Anycast IP（`172.67.144.175`、`104.21.87.166`），无法直接获取真实源站。以下记录完整的溯源方法与结果。
+
+#### 尝试方法与结果
+
+| # | 方法 | 结果 | 有效性 |
+|---|------|------|--------|
+| 1 | 子域名枚举 (crt.sh + DNS 爆破) | 无子域名记录 | ✗ |
+| 2 | MX / TXT / SPF 记录检查 | 均为空，无邮件基础设施 | ✗ |
+| 3 | Certificate Transparency 日志分析 | **发现早期中国 CA 证书** | ✓ 线索 |
+| 4 | RapidDNS 历史 DNS 记录 | **发现历史 A 记录 `118.193.47.123`** | ✓ 关键 |
+| 5 | 直连 IP + Host 头验证 | **服务器响应 308 重定向** | ✓ 确认 |
+| 6 | TLS 证书指纹分析 | Kubernetes Ingress Controller 伪证书 | ✓ 补充 |
+| 7 | WHOIS 归属查询 | UCloud 香港 | ✓ 补充 |
+
+#### 方法 3：Certificate Transparency 日志
+
+通过 `crt.sh` 查询 `playstations.click` 的 SSL 证书历史：
+
+```
+证书 #1: 颁发机构 TrustAsia TLS RSA CA (2025-02)
+证书 #2: 颁发机构 SHECA (上海数字证书认证中心)
+后续证书: 全部切换为 Cloudflare (Google Trust Services)
+```
+
+**分析**：TrustAsia（亚洲诚信，由 DigiCert 托管）和 SHECA 均为中国 CA，表明域名最初直接暴露在中国大陆/香港服务器上，后迁移至 Cloudflare 代理。这证实存在一个 Cloudflare 之前的时间窗口，历史 DNS 记录可能泄露真实 IP。
+
+#### 方法 4：RapidDNS 历史记录（关键突破）
+
+查询 `rapiddns.io` 的历史 A 记录：
+
+```
+playstations.click → 118.193.47.123  (首次记录时间早于 Cloudflare 迁移)
+```
+
+这是唯一的非 Cloudflare IP 历史记录，与 Certificate Transparency 时间线吻合——在使用中国 CA 证书期间，域名直接指向此 IP。
+
+#### 方法 5：直连验证（确认）
+
+使用 `Host` 头直连候选 IP 验证：
+
+```bash
+$ curl -sk -H "Host: playstations.click" https://118.193.47.123/ -D -
+
+HTTP/2 308
+server: nginx
+location: https://playstations.click/
+```
+
+**结果**：服务器识别 `Host: playstations.click` 并返回 308 永久重定向，确认此 IP 为 `playstations.click` 的源站。对比用任意 Host 头访问：
+
+```bash
+$ curl -sk https://118.193.47.123/ -D -
+
+HTTP/2 404
+server: nginx
+```
+
+返回通用 nginx 404，说明服务器使用基于 Host 的虚拟主机路由（典型的 nginx-ingress 行为）。
+
+#### 方法 6：TLS 证书指纹
+
+直连 `118.193.47.123:443` 获取的 TLS 证书：
+
+```
+Subject: CN=Kubernetes Ingress Controller Fake Certificate
+Issuer:  CN=Kubernetes Ingress Controller Fake Certificate
+```
+
+这是 nginx-ingress-controller 在未匹配到 SNI 域名时使用的默认自签名证书，表明源站运行在 **Kubernetes 集群**中，使用 nginx-ingress 作为入口控制器。
+
+#### 方法 7：WHOIS 归属
+
+```
+IP:        118.193.47.123
+网段:      118.193.47.0/24
+组织:      UCLOUD INFORMATION TECHNOLOGY (HK) LIMITED
+国家:      HK (香港)
+描述:      UCloud Hong Kong
+```
+
+#### 源站信息汇总
+
+| 属性 | 值 |
+|------|---|
+| **真实 IP** | `118.193.47.123` |
+| **网段** | `118.193.47.0/24` |
+| **归属** | UCloud 香港 |
+| **基础设施** | Kubernetes + nginx-ingress-controller |
+| **Web 服务器** | nginx |
+| **发现方法** | RapidDNS 历史 A 记录 + Host 头直连验证 |
+| **当前状态** | 服务器存活，识别 playstations.click 域名（308），但 API 端点已下线（404） |
+
+#### 与其他基础设施的关联
+
+源站 IP 归属于 UCloud 香港，与以下组件使用同一云服务商：
+
+| 组件 | IP | UCloud 地域 |
+|------|---|------------|
+| **C&C API 源站** | `118.193.47.123` | **香港** |
+| TURN 中继 #1 | `101.36.120.3` | 香港 |
+| TURN 中继 #2 | `106.75.153.105` | 上海 |
+| CDN 存储 | `app-download.cn-wlcb.ufileos.com` | 华北 |
+
+**结论**：攻击者的核心运营基础设施（C&C API 源站、TURN 中继、CDN 存储）集中部署在 UCloud，跨香港、上海、华北三个地域。TURN 凭据用户名 `wumitech` 暗示关联到武汉/武密科技。仅 dllpgd.click 配置服务器独立部署在 AWS EC2 us-east-1，且该 IP 已被回收。
+
+#### 附：dllpgd.click IP 回收确认
+
+对 `dllpgd.click` 的历史 IP 进行验证：
+
+```bash
+$ curl -sk https://18.204.68.18/ -D -
+
+HTTP/2 404
+server: uvicorn
+# 返回 {"detail":"Not Found"} — FastAPI/uvicorn 框架
+
+$ host 18.204.68.18
+18.68.204.18.in-addr.arpa domain name pointer ec2-18-204-68-18.compute-1.amazonaws.com.
+```
+
+该 IP（`18.204.68.18`）已被 AWS 重新分配给 `hal-backend.pruna.ai`（一个 AI 模型优化平台），运行 Python FastAPI 应用。原始的 Spring Boot C&C 配置服务已不存在，表明攻击者已释放该 EC2 实例。
