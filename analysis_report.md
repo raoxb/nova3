@@ -27,44 +27,62 @@
 ### 3.1 模块拓扑
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│  APK (com.android.wallpaper)                                                │
-│                                                                              │
-│  ┌─ core/ ──────────────────────────────────┐  ┌─ api/ ──────────────────┐  │
-│  │ AppContext          全局状态/主线程派发    │  │ ApiClient    9个C&C端点  │  │
-│  │ TaskConfig          SDK运行配置           │  │ HttpClient   HTTP传输层  │  │
-│  │ PreferencesHelper   AES加密存储/文件I/O   │  │ ApiException API异常     │  │
-│  │ LogHelper           日志 → C&C上传        │  │ NetworkException 网络异常│  │
-│  │ RequestFilter       WebView请求拦截       │  └────────────────────────┘  │
-│  │ ScreenHelper        屏幕尺寸获取          │                              │
-│  └───────────────────────────────────────────┘                              │
-│                                                                              │
-│  ┌─ touch/ ─────────────────────────────────┐  ┌─ model/ ────────────────┐  │
-│  │ TaskOrchestrator    任务编排中心           │  │ Log / LogLevel   日志模型│  │
-│  │ WebViewAutomationBase  WebView引擎基类    │  │ DeviceFingerprint 15字段 │  │
-│  │ SignalingModeTask   信令模式任务          │  │ DeviceAuthRequest 认证   │  │
-│  │ NonSignalingModeTask 自主模式任务         │  │ TokenResponse           │  │
-│  │ MotionHelper        触摸事件伪造(9轴)     │  │ ConfigResponse          │  │
-│  │ SwipeSimulator      贝塞尔曲线滑动        │  │ FileVersionResponse     │  │
-│  │ SDKInitializer      SDK入口              │  │ FileInfoResponse        │  │
-│  │ WebViewBridge       JS桥接口             │  │ FileContentResponse     │  │
-│  │ RandomHelper        高精度随机数          │  │ Offer / Jsonable        │  │
-│  └───────────────────────────────────────────┘  └────────────────────────┘  │
-│                                                                              │
-│  ┌─ signaling/ ─────────────────────────────┐  ┌─ webrtc/ ──────────────┐  │
-│  │ SignalingConnection  WebSocket信令管理     │  │ WebRTCController 主控   │  │
-│  │ SignalingRequest/Response 消息封装        │  │ VirtualDisplayCapturer  │  │
-│  │ SDPOffer/SDPAnswer   SDP交换             │  │ BitmapFrameCapturer     │  │
-│  │ ICECandidate         ICE候选             │  │ SafeVideoDecoderFactory │  │
-│  │ ControlCommand       远程控制命令         │  └────────────────────────┘  │
-│  │ Ping/Pong            心跳保活             │                              │
-│  │ ConnectionStatus     状态机              │  ┌─ c2/ ────────────────────┐ │
-│  │ Click/Scroll/TextInput 操作事件          │  │ DllpgdLiteSDK  主入口    │ │
-│  │ UpdateSignalingStatus 状态上报           │  │ HttpGatewayClient AES通信│ │
-│  │ CheckSignalingPluginStart 插件检查       │  │ Atom / DeviceInfo 指纹   │ │
-│  │ Done / Error          完成/错误           │  │ DllpgdConfig 远程配置    │ │
-│  └───────────────────────────────────────────┘  └────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│  APK (com.android.wallpaper)              ┌─ entry/ ─────────────────────────┐  │
+│                                           │ MainActivity   → Kucopd.init()   │  │
+│  ┌─ hook/ ──────────────────────────────┐ │ Kucopd         SDK线程入口       │  │
+│  │ HookContextWrapper  Context代理      │ └──────────────────────────────────┘  │
+│  │ HookConfig          栈帧匹配/假包名  │                                       │
+│  │ ContextHookInstaller 反射注入mBase   │  ┌─ api/ ──────────────────────────┐  │
+│  │ PackageManagerProxy  PM透传代理      │  │ ApiClient      9个C&C端点       │  │
+│  └──────────────────────────────────────┘  │ HttpClient     HTTP传输层       │  │
+│                                            │ ApiException   API异常          │  │
+│  ┌─ core/ (29) ─────────────────────────┐  │ NetworkException 网络异常       │  │
+│  │ AppContext        全局状态/主线程派发  │  └──────────────────────────────────┘  │
+│  │ TaskConfig        SDK运行配置        │                                       │
+│  │ PreferencesHelper AES加密存储        │  ┌─ model/ ─────────────────────────┐  │
+│  │ LogHelper         日志 → C&C上传     │  │ Log/LogLevel    日志模型         │  │
+│  │ EventReporter     事件定期上报C&C    │  │ DeviceFingerprint 15字段         │  │
+│  │ LogUploader       日志定期上报C&C    │  │ DeviceAuthRequest 认证           │  │
+│  │ AnalyticsEventType 12种事件枚举     │  │ TokenResponse/ConfigResponse     │  │
+│  │ XorStringCipher   XOR字符串加解密    │  │ FileVersion/FileInfo/FileContent │  │
+│  │ RequestFilter     WebView请求拦截    │  │ Offer / Jsonable                 │  │
+│  │ ScreenHelper      屏幕尺寸获取       │  └──────────────────────────────────┘  │
+│  │ StringCipherLoader/Interface 密码器  │                                       │
+│  │ Protocol/ProtocolImpl 协议接口       │  ┌─ c2/ ────────────────────────────┐  │
+│  │ exceptions/ (10)  WebSocket异常链    │  │ DllpgdLiteSDK    主入口          │  │
+│  └──────────────────────────────────────┘  │ HttpGatewayClient AES 5层通信    │  │
+│                                            │ Atom / DeviceInfo  设备指纹      │  │
+│  ┌─ touch/ ─────────────────────────────┐  │ DllpgdConfig     远程配置+Hook   │  │
+│  │ TaskOrchestrator  任务编排中心        │  │ H5V1Refactor     H5协议重构     │  │
+│  │ WebViewAutomationBase WebView基类    │  └──────────────────────────────────┘  │
+│  │ SignalingModeTask 信令模式任务        │                                       │
+│  │ NonSignalingModeTask 自主模式        │  ┌─ screenshot/ ───────────────────┐   │
+│  │ MotionHelper      触摸事件伪造(9轴)  │  │ Screenshotter    VirtualDisplay  │   │
+│  │ SwipeSimulator    贝塞尔曲线滑动     │  │ WebViewReflectionHelper 反射     │   │
+│  │ SDKInitializer    SDK入口            │  │ RequestInterceptor Chromium拦截  │   │
+│  │ WebViewBridge     JS桥接口           │  │ ReflectionUtils  字段/方法反射   │   │
+│  │ RandomHelper      高精度随机数       │  └──────────────────────────────────┘   │
+│  └──────────────────────────────────────┘                                        │
+│                                                                                  │
+│  ┌─ signaling/ (24) ────────────────────┐  ┌─ webrtc/ ───────────────────────┐  │
+│  │ SignalingWebSocketManager WS管理+重连 │  │ WebRTCController   主控          │  │
+│  │ SignalingHttpClient     信令HTTP客户端│  │ VirtualDisplayCapturer           │  │
+│  │ SignalingApiClient      信令API门面   │  │ BitmapFrameCapturer              │  │
+│  │ SignalingConnection     WS信令连接    │  │ SafeVideoDecoderFactory          │  │
+│  │ SignalingRequest/Response 消息封装    │  └──────────────────────────────────┘  │
+│  │ SDPOffer/SDPAnswer       SDP交换     │                                        │
+│  │ ICECandidate/ControlCommand          │  ┌─ websocket/ (55) ───────────────┐  │
+│  │ Ping/Pong               心跳保活     │  │ WebSocketClientBase 客户端基类   │  │
+│  │ Click/Scroll/TextInput  操作事件     │  │ WebSocketImpl       协议实现     │  │
+│  │ ConnectionStatus/Done/Error          │  │ frames/ (10)  帧类型层次         │  │
+│  │ UpdateSignalingStatus   状态上报     │  │ handshake/ (9) 握手协议          │  │
+│  │ CheckSignalingPluginStart            │  │ server/ (5)   服务端工厂         │  │
+│  │ WebRTCController        WebRTC控制   │  │ extensions/ (5) 压缩扩展         │  │
+│  └──────────────────────────────────────┘  │ enums/ (5) + drafts/ (2)        │  │
+│                                            │ DnsResolver    DNS解析接口       │  │
+│                                            └──────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────────┘
          │                    │                      │
          ▼                    ▼                      ▼
 ┌─────────────────┐ ┌──────────────────┐ ┌──────────────────────┐
@@ -128,18 +146,27 @@ MainActivity.onCreate()
 
 ### 3.4 还原统计
 
-共还原 **74 个 Java 文件**，**17,310 行**代码，覆盖 7 大模块：
+共还原 **178 个 Java 文件**，**26,030 行**代码，覆盖 15 大模块（已 100% 覆盖所有恶意代码类）：
 
 | 模块 | 文件数 | 代码行数 | 输出目录 |
 |------|--------|----------|----------|
-| 信令协议 | 21 | 4,455 | `restored_java/signaling/` |
+| 信令协议 | 24 | 5,686 | `restored_java/signaling/` |
 | WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
 | 触摸伪造 + WebView 自动化 | 9 | 3,993 | `restored_java/touch/` |
-| C&C 通信协议 | 17 | 1,927 | `restored_java/c2/` |
-| 核心工具类 | 9 | 2,248 | `restored_java/core/` |
+| C&C 通信协议 | 18 | 1,957 | `restored_java/c2/` |
+| 核心工具类 + 异常 | 39 | 4,325 | `restored_java/core/` + `core/exceptions/` |
 | API 客户端 | 4 | 840 | `restored_java/api/` |
 | 数据模型 | 10 | 950 | `restored_java/model/` |
-| **合计** | **74** | **17,310** | `restored_java/` |
+| 入口点 | 2 | 88 | `restored_java/entry/` |
+| 包名伪装Hook | 4 | 610 | `restored_java/hook/` |
+| WebSocket 核心 | 19 | 2,255 | `restored_java/websocket/` |
+| WebSocket 帧 | 10 | 585 | `restored_java/websocket/frames/` |
+| WebSocket 握手 | 9 | 226 | `restored_java/websocket/handshake/` |
+| WebSocket 服务器 | 5 | 389 | `restored_java/websocket/server/` |
+| WebSocket 扩展 | 5 | 338 | `restored_java/websocket/extensions/` |
+| WebSocket 枚举 + 草案 | 7 | 274 | `restored_java/websocket/enums/` + `drafts/` |
+| 截图系统 | 9 | 617 | `restored_java/screenshot/` |
+| **合计** | **178** | **26,030** | `restored_java/` |
 
 ## 四、核心恶意功能详细分析
 
@@ -1258,14 +1285,18 @@ dataChannel.send(new DataChannel.Buffer(ByteBuffer.wrap(pong.toString().getBytes
 
 | 模块 | 还原路径 | 文件数 | 代码行数 |
 |------|----------|--------|----------|
-| 信令协议 | `restored_java/signaling/` | 21 | 4,455 |
+| 信令协议 | `restored_java/signaling/` | 24 | 5,686 |
 | WebRTC 远程控制 | `restored_java/webrtc/` | 4 | 2,897 |
 | 触摸伪造 + WebView 自动化 | `restored_java/touch/` | 9 | 3,993 |
-| C&C 通信协议 | `restored_java/c2/` | 17 | 1,927 |
-| 核心工具类 | `restored_java/core/` | 9 | 2,248 |
+| C&C 通信协议 | `restored_java/c2/` | 18 | 1,957 |
+| 核心工具类 + 异常 | `restored_java/core/` | 39 | 4,325 |
 | API 客户端 | `restored_java/api/` | 4 | 840 |
 | 数据模型 | `restored_java/model/` | 10 | 950 |
-| **合计** | `restored_java/` | **74** | **17,310** |
+| 入口点 | `restored_java/entry/` | 2 | 88 |
+| 包名伪装Hook | `restored_java/hook/` | 4 | 610 |
+| WebSocket 库 (核心/帧/握手/服务器/扩展/枚举/草案) | `restored_java/websocket/` | 55 | 4,067 |
+| 截图系统 | `restored_java/screenshot/` | 9 | 617 |
+| **合计** | `restored_java/` | **178** | **26,030** |
 
 ### 10.3 分析辅助工具
 
@@ -1519,14 +1550,18 @@ Baseline Profile 的存在表明该恶意软件的开发者有意识地对恶意
 
 | 模块 | 文件数 | 代码行数 | 输出目录 |
 |------|--------|----------|----------|
-| 信令协议 (Signaling) | 21 | 4,455 | `restored_java/signaling/` |
+| 信令协议 (Signaling) | 24 | 5,686 | `restored_java/signaling/` |
 | WebRTC 远程控制 | 4 | 2,897 | `restored_java/webrtc/` |
 | 触摸伪造 + WebView 自动化 | 9 | 3,993 | `restored_java/touch/` |
-| C&C 通信协议 | 17 | 1,927 | `restored_java/c2/` |
-| 核心工具类 | 9 | 2,248 | `restored_java/core/` |
+| C&C 通信协议 | 18 | 1,957 | `restored_java/c2/` |
+| 核心工具类 + 异常 | 39 | 4,325 | `restored_java/core/` |
 | API 客户端 | 4 | 840 | `restored_java/api/` |
 | 数据模型 | 10 | 950 | `restored_java/model/` |
-| **合计** | **74** | **~17,310** | `restored_java/` |
+| 入口点 | 2 | 88 | `restored_java/entry/` |
+| 包名伪装Hook | 4 | 610 | `restored_java/hook/` |
+| WebSocket 库 | 55 | 4,067 | `restored_java/websocket/` |
+| 截图系统 | 9 | 617 | `restored_java/screenshot/` |
+| **合计** | **178** | **26,030** | `restored_java/` |
 
 ---
 

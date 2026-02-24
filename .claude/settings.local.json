@@ -19,7 +19,15 @@
       "Bash(head:*)",
       "Bash(xargs ls -lh)",
       "Bash(grep:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(echo === $dir ===:*)",
+      "Bash(cd:*)",
+      "Bash(for dir in llIIllIl1 lllIlIlllI1 IIlIIllll1 lIIlllIIIlllII1 IlIIIIllllIlI1 IlIlIIlIII1 IlIllIlllIllI1 IlIlllIIlI1 lIIIIlllllIlll1 llllIIIIll1 llllIllIl1 llllllIlIIIlll1 IIlIllIIll1 IIlllllIlll1 lIlllIIIII1 llIIIIlIlllIII1)",
+      "Bash(do echo \"=== $dir ===\" find /root/code/nova2/jadx_output/sources/$dir -name \"*.java\" -type f)",
+      "Bash(ls:*)",
+      "Bash(xargs basename:*)",
+      "Bash(echo === $pkg ===:*)",
+      "Bash(echo === $cls ===:*)"
     ]
   }
 }
