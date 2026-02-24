@@ -1,0 +1,57 @@
+{{define "layout"}}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova2 Admin - {{.Title}}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#1a1a2e;color:#e0e0e0;line-height:1.6}
+.nav{background:#16213e;padding:12px 24px;display:flex;gap:24px;align-items:center;border-bottom:1px solid #0f3460}
+.nav a{color:#e94560;text-decoration:none;font-weight:500}
+.nav a:hover{color:#ff6b6b}
+.nav .brand{font-size:1.2em;font-weight:700;color:#e94560;margin-right:auto}
+.container{max-width:1200px;margin:24px auto;padding:0 24px}
+h1{margin-bottom:16px;color:#e94560}
+.card{background:#16213e;border-radius:8px;padding:20px;margin-bottom:16px;border:1px solid #0f3460}
+.card h2{color:#e94560;font-size:1.1em;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.stat{text-align:center;padding:20px}
+.stat .num{font-size:2em;font-weight:700;color:#e94560}
+.stat .label{color:#999;font-size:0.9em}
+table{width:100%;border-collapse:collapse;margin-top:8px}
+th,td{padding:8px 12px;text-align:left;border-bottom:1px solid #0f3460}
+th{color:#e94560;font-weight:600;font-size:0.85em;text-transform:uppercase}
+td{font-size:0.9em}
+.btn{display:inline-block;padding:6px 16px;background:#e94560;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:0.85em;text-decoration:none}
+.btn:hover{background:#ff6b6b}
+.btn-sm{padding:4px 10px;font-size:0.8em}
+.btn-outline{background:transparent;border:1px solid #e94560;color:#e94560}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:0.75em;font-weight:600}
+.badge-green{background:#0a3d2a;color:#4caf50}
+.badge-yellow{background:#3d3a0a;color:#ffeb3b}
+.badge-red{background:#3d0a0a;color:#f44336}
+input,select,textarea{background:#0a0a1a;color:#e0e0e0;border:1px solid #0f3460;padding:8px 12px;border-radius:4px;width:100%;margin-bottom:8px}
+form{margin-top:12px}
+.form-row{display:flex;gap:8px;align-items:end;flex-wrap:wrap}
+.form-row > *{flex:1;min-width:150px}
+pre{background:#0a0a1a;padding:12px;border-radius:4px;overflow-x:auto;font-size:0.85em}
+.mono{font-family:"SF Mono",Menlo,monospace;font-size:0.85em}
+</style>
+</head>
+<body>
+<nav class="nav">
+<span class="brand">Nova2 C&C</span>
+<a href="/admin/">Dashboard</a>
+<a href="/admin/devices">Devices</a>
+<a href="/admin/jobs">Jobs</a>
+<a href="/admin/events">Events</a>
+<a href="/admin/webrtc">WebRTC</a>
+</nav>
+<div class="container">
+{{block "page_content" .}}{{end}}
+</div>
+</body>
+</html>
+{{end}}

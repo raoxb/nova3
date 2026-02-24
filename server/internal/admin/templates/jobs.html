@@ -1,0 +1,43 @@
+{{define "page_content"}}
+<h1>Jobs & Offers</h1>
+<div class="card">
+  <h2>Create Job</h2>
+  <form method="POST" action="/admin/jobs/create">
+    <div class="form-row">
+      <div><label>Offer ID</label><input type="text" name="offer_id" placeholder="offer_001" required></div>
+      <div><label>Device ID</label><input type="text" name="device_id" placeholder="device-uuid" required></div>
+      <div><label>Site URL</label><input type="text" name="site_url" placeholder="https://example.com"></div>
+      <div><button type="submit" class="btn" style="margin-top:20px">Create</button></div>
+    </div>
+  </form>
+</div>
+<div class="card">
+  <h2>All Jobs ({{len .Jobs}})</h2>
+  <table>
+    <tr>
+      <th>Job ID</th>
+      <th>Offer ID</th>
+      <th>Device ID</th>
+      <th>Site URL</th>
+      <th>Status</th>
+      <th>Created</th>
+    </tr>
+    {{range .Jobs}}
+    <tr>
+      <td class="mono">{{.JobID}}</td>
+      <td>{{.OfferID}}</td>
+      <td class="mono">{{.DeviceID}}</td>
+      <td>{{.SiteURL}}</td>
+      <td>
+        {{if eq .Status "pending"}}<span class="badge badge-yellow">{{.Status}}</span>
+        {{else if eq .Status "DONE"}}<span class="badge badge-green">{{.Status}}</span>
+        {{else}}<span class="badge badge-red">{{.Status}}</span>{{end}}
+      </td>
+      <td class="mono">{{.CreatedAt}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6">No jobs created yet.</td></tr>
+    {{end}}
+  </table>
+</div>
+{{end}}

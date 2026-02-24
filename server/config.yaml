@@ -1,0 +1,19 @@
+server:
+  dllpgd_addr: ":8083"
+  phantom_addr: ":8081"
+  signaling_addr: ":8082"
+  admin_addr: ":9090"
+
+crypto:
+  aes_key_seed: "GreenDay"
+
+admin:
+  username: "admin"
+  password: "nova2admin"
+
+database:
+  path: "./nova2.db"
+
+logging:
+  level: "debug"
+  pretty: true

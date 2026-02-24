@@ -1,0 +1,60 @@
+{{define "page_content"}}
+<h1>Events & Logs</h1>
+<div class="card">
+  <h2>Events</h2>
+  <table>
+    <tr>
+      <th>ID</th>
+      <th>Device</th>
+      <th>Source</th>
+      <th>Name</th>
+      <th>Description</th>
+      <th>Timestamp</th>
+    </tr>
+    {{range .Events}}
+    <tr>
+      <td>{{.ID}}</td>
+      <td class="mono">{{.DeviceID}}</td>
+      <td>{{.Source}}</td>
+      <td>{{.Name}}</td>
+      <td>{{.Description}}</td>
+      <td class="mono">{{.EventTimestamp}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="6">No events recorded yet.</td></tr>
+    {{end}}
+  </table>
+</div>
+<div class="card">
+  <h2>Logs</h2>
+  <table>
+    <tr>
+      <th>ID</th>
+      <th>Device</th>
+      <th>Source</th>
+      <th>Level</th>
+      <th>Tag</th>
+      <th>Message</th>
+      <th>Timestamp</th>
+    </tr>
+    {{range .Logs}}
+    <tr>
+      <td>{{.ID}}</td>
+      <td class="mono">{{.DeviceID}}</td>
+      <td>{{.Source}}</td>
+      <td>{{.Level}}</td>
+      <td>{{.Tag}}</td>
+      <td>{{.Message}}</td>
+      <td class="mono">{{.LogTimestamp}}</td>
+    </tr>
+    {{else}}
+    <tr><td colspan="7">No logs recorded yet.</td></tr>
+    {{end}}
+  </table>
+</div>
+<div style="margin-top:16px;text-align:center">
+  {{if gt .Page 1}}<a href="?page={{.Page}}" class="btn btn-outline">Previous</a>{{end}}
+  <span style="margin:0 12px">Page {{.Page}}</span>
+  <a href="?page={{.Page}}" class="btn btn-outline">Next</a>
+</div>
+{{end}}

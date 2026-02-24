@@ -27,7 +27,18 @@
       "Bash(ls:*)",
       "Bash(xargs basename:*)",
       "Bash(echo === $pkg ===:*)",
-      "Bash(echo === $cls ===:*)"
+      "Bash(echo === $cls ===:*)",
+      "Bash(cd /root/code/nova2/server && go mod tidy 2>&1)",
+      "Bash(go build:*)",
+      "Bash(go test:*)",
+      "Bash(true:*)",
+      "Bash(kill %1:*)",
+      "Bash(go run:*)",
+      "Bash(pkill:*)",
+      "Bash(sleep 1:*)",
+      "Bash(kill:*)",
+      "Bash(pgrep:*)",
+      "Bash(ss:*)"
     ]
   }
 }

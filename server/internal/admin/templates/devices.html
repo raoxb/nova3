@@ -1,0 +1,52 @@
+{{define "page_content"}}
+<h1>Devices</h1>
+{{if .Device}}
+<div class="card">
+  <h2>Device Detail</h2>
+  <pre>{{json .Device}}</pre>
+  <form method="POST" action="/admin/devices/{{.Device.DeviceID}}/signaling" style="margin-top:12px">
+    {{if eq .Device.SignalingEnabled 1}}
+    <input type="hidden" name="enable" value="false">
+    <button type="submit" class="btn">Disable Signaling</button>
+    {{else}}
+    <input type="hidden" name="enable" value="true">
+    <button type="submit" class="btn">Enable Signaling</button>
+    {{end}}
+  </form>
+</div>
+{{end}}
+<div class="card">
+  <h2>All Devices ({{len .Devices}})</h2>
+  <table>
+    <tr>
+      <th>Device ID</th>
+      <th>App</th>
+      <th>Model</th>
+      <th>Android</th>
+      <th>Locale</th>
+      <th>Signaling</th>
+      <th>Last Seen</th>
+      <th>Actions</th>
+    </tr>
+    {{range .Devices}}
+    <tr>
+      <td class="mono">{{.DeviceID}}</td>
+      <td>{{.AppPackage}}</td>
+      <td>{{.Model}}</td>
+      <td>{{.AndroidVersion}}</td>
+      <td>{{.Locale}}</td>
+      <td>
+        {{if eq .SignalingEnabled 1}}<span class="badge badge-green">ON</span>
+        {{else}}<span class="badge badge-red">OFF</span>{{end}}
+      </td>
+      <td class="mono">{{.LastSeenAt}}</td>
+      <td>
+        <a href="/admin/devices/{{.DeviceID}}" class="btn btn-sm btn-outline">Detail</a>
+      </td>
+    </tr>
+    {{else}}
+    <tr><td colspan="8">No devices registered yet.</td></tr>
+    {{end}}
+  </table>
+</div>
+{{end}}

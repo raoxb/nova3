@@ -1,0 +1,39 @@
+{{define "page_content"}}
+<h1>Dashboard</h1>
+<div class="grid">
+  <div class="card stat">
+    <div class="num">{{.OnlineDevices}}</div>
+    <div class="label">Online Devices (5m)</div>
+  </div>
+  <div class="card stat">
+    <div class="num">{{.TotalDevices}}</div>
+    <div class="label">Total Devices</div>
+  </div>
+  <div class="card stat">
+    <div class="num">{{.TotalEvents}}</div>
+    <div class="label">Total Events</div>
+  </div>
+  <div class="card stat">
+    <div class="num">{{.TotalLogs}}</div>
+    <div class="label">Total Logs</div>
+  </div>
+  <div class="card stat">
+    <div class="num">{{.TotalJobs}}</div>
+    <div class="label">Total Jobs</div>
+  </div>
+  <div class="card stat">
+    <div class="num">{{.ActiveRooms}}</div>
+    <div class="label">Active Sessions</div>
+  </div>
+</div>
+<div class="card">
+  <h2>Server Endpoints</h2>
+  <table>
+    <tr><th>Service</th><th>Port</th><th>Protocol</th><th>Encryption</th></tr>
+    <tr><td>C&C Config (dllpgd)</td><td>:8083</td><td>HTTP</td><td>AES-256-CFB 5-layer pipeline</td></tr>
+    <tr><td>C&C API (phantom)</td><td>:8081</td><td>HTTP</td><td>XOR+Base64 dynamic key</td></tr>
+    <tr><td>Signaling</td><td>:8082</td><td>HTTP+WS</td><td>Plaintext JSON</td></tr>
+    <tr><td>Admin</td><td>:9090</td><td>HTTP</td><td>Basic Auth</td></tr>
+  </table>
+</div>
+{{end}}

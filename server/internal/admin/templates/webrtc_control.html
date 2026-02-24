@@ -1,0 +1,49 @@
+{{define "page_content"}}
+<h1>WebRTC Control Panel</h1>
+<div class="card">
+  <h2>Active Signaling Rooms ({{len .ActiveRooms}})</h2>
+  {{if .ActiveRooms}}
+  <ul>
+    {{range .ActiveRooms}}
+    <li class="mono">{{.}} <button class="btn btn-sm" onclick="connectRoom('{{.}}')">Connect</button></li>
+    {{end}}
+  </ul>
+  {{else}}
+  <p>No active rooms. Enable signaling on a device first.</p>
+  {{end}}
+</div>
+<div class="card">
+  <h2>Connect to Device</h2>
+  <div class="form-row">
+    <div>
+      <label>Room ID (Device ID)</label>
+      <select id="roomSelect">
+        <option value="">Select device...</option>
+        {{range .Devices}}
+        {{if eq .SignalingEnabled 1}}
+        <option value="{{.DeviceID}}">{{.DeviceID}} ({{.Model}})</option>
+        {{end}}
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <button class="btn" onclick="connectRoom(document.getElementById('roomSelect').value)" style="margin-top:20px">Connect</button>
+    </div>
+  </div>
+</div>
+<div class="card" id="webrtcPanel" style="display:none">
+  <h2>Remote View</h2>
+  <div style="margin-bottom:12px">
+    <span id="connStatus" class="badge badge-yellow">Connecting...</span>
+    <button class="btn btn-sm" onclick="disconnect()">Disconnect</button>
+  </div>
+  <video id="remoteVideo" autoplay playsinline style="width:100%;max-height:600px;background:#000;border-radius:4px"></video>
+  <div id="controlPanel" style="margin-top:12px">
+    <button class="btn btn-sm" onclick="sendControl('screenshot')">Screenshot</button>
+    <button class="btn btn-sm" onclick="sendControl('home')">Home</button>
+    <button class="btn btn-sm" onclick="sendControl('back')">Back</button>
+    <button class="btn btn-sm" onclick="sendControl('recents')">Recents</button>
+  </div>
+</div>
+<script src="/static/js/webrtc_operator.js"></script>
+{{end}}
