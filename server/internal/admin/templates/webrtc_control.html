@@ -43,20 +43,85 @@
     </div>
   </div>
 </div>
+
 <div class="card" id="webrtcPanel" style="display:none">
   <h2>Remote View</h2>
-  <div style="margin-bottom:12px">
+
+  <!-- Status bar -->
+  <div style="margin-bottom:12px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">
     <span id="connStatus" class="badge badge-yellow">Connecting...</span>
-    <button class="btn btn-sm" onclick="disconnect()">Disconnect</button>
+    <span style="color:#999;font-size:12px">DC:</span>
+    <span id="dcStatus" class="badge badge-red">closed</span>
+    <span style="color:#999;font-size:12px">Last:</span>
+    <span id="lastAction" class="mono" style="color:#e94560;font-size:12px">—</span>
+    <button class="btn btn-sm" onclick="disconnect()" style="margin-left:auto">Disconnect</button>
   </div>
-  <video id="remoteVideo" autoplay playsinline style="width:100%;max-height:600px;background:#000;border-radius:4px"></video>
-  <div id="controlPanel" style="margin-top:12px">
-    <button class="btn btn-sm" onclick="sendControl('screenshot')">Screenshot</button>
-    <button class="btn btn-sm" onclick="sendControl('home')">Home</button>
-    <button class="btn btn-sm" onclick="sendControl('back')">Back</button>
-    <button class="btn btn-sm" onclick="sendControl('recents')">Recents</button>
+
+  <!-- Video container with canvas overlay -->
+  <div id="videoContainer" style="position:relative;display:inline-block;width:100%;max-width:800px;background:#000;border-radius:4px;overflow:hidden">
+    <video id="remoteVideo" autoplay playsinline style="width:100%;display:block;background:#000"></video>
+    <canvas id="videoOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;cursor:crosshair;touch-action:none"></canvas>
+    <div style="position:absolute;bottom:8px;left:8px;color:rgba(255,255,255,0.5);font-size:10px;pointer-events:none">
+      Click / Drag / Scroll on video
+    </div>
+  </div>
+
+  <!-- Quick actions -->
+  <div style="margin-top:12px">
+    <strong style="color:#999;font-size:12px;display:block;margin-bottom:6px">Quick Actions</strong>
+    <div style="display:flex;flex-wrap:wrap;gap:6px">
+      <button class="btn btn-sm" onclick="sendAction('screenshot')">Screenshot</button>
+      <button class="btn btn-sm" onclick="sendAction('keyInput',{key:'Home',code:3})">Home</button>
+      <button class="btn btn-sm" onclick="sendAction('goBack')">Back</button>
+      <button class="btn btn-sm" onclick="sendAction('keyInput',{key:'Recents',code:187})">Recents</button>
+      <button class="btn btn-sm" onclick="sendAction('close')">Close</button>
+      <button class="btn btn-sm" onclick="sendPing()">Ping</button>
+    </div>
+  </div>
+
+  <!-- Text input -->
+  <div style="margin-top:16px">
+    <strong style="color:#999;font-size:12px;display:block;margin-bottom:6px">Text Input</strong>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input id="pasteTextField" type="text" placeholder="Text to paste on device..." style="flex:1;background:#0a0a1a;border:1px solid #0f3460;color:#e0e0e0;padding:6px 10px;border-radius:4px;font-family:monospace">
+      <button class="btn btn-sm" onclick="sendPasteText()">Paste</button>
+    </div>
+    <div style="display:flex;gap:6px;align-items:center">
+      <input id="keyInputField" type="text" placeholder="Type here for key events (Enter/Backspace/Esc/Tab)" style="flex:1;background:#0a0a1a;border:1px solid #0f3460;color:#e0e0e0;padding:6px 10px;border-radius:4px;font-family:monospace">
+      <span style="color:#666;font-size:11px">Keys sent on press</span>
+    </div>
+  </div>
+
+  <!-- Manual coordinate click -->
+  <div style="margin-top:16px">
+    <strong style="color:#999;font-size:12px;display:block;margin-bottom:6px">Manual Coordinate Click</strong>
+    <div style="display:flex;gap:6px;align-items:center">
+      <label style="color:#999;font-size:12px">X:</label>
+      <input id="manualX" type="number" min="0" max="1" step="0.01" value="0.5" style="width:80px;background:#0a0a1a;border:1px solid #0f3460;color:#e0e0e0;padding:6px 8px;border-radius:4px;font-family:monospace">
+      <label style="color:#999;font-size:12px">Y:</label>
+      <input id="manualY" type="number" min="0" max="1" step="0.01" value="0.5" style="width:80px;background:#0a0a1a;border:1px solid #0f3460;color:#e0e0e0;padding:6px 8px;border-radius:4px;font-family:monospace">
+      <button class="btn btn-sm" onclick="sendManualClick()">Click</button>
+    </div>
+  </div>
+
+  <!-- Command log -->
+  <div style="margin-top:16px">
+    <strong style="color:#999;font-size:12px;display:block;margin-bottom:6px">Command Log (last 20)</strong>
+    <div style="max-height:200px;overflow-y:auto;border:1px solid #0f3460;border-radius:4px;background:#0a0a1a">
+      <table style="width:100%;font-size:12px">
+        <thead>
+          <tr style="color:#666;border-bottom:1px solid #0f3460">
+            <th style="padding:4px 8px;text-align:left;width:80px">Time</th>
+            <th style="padding:4px 8px;text-align:left;width:100px">Action</th>
+            <th style="padding:4px 8px;text-align:left">Params</th>
+          </tr>
+        </thead>
+        <tbody id="cmdLogBody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
+
 <script>
 // ICE servers configuration injected from server config
 var ICE_SERVERS = {{.ICEServers}};

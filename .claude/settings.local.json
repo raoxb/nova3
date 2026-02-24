@@ -42,7 +42,10 @@
       "Bash(\":*)",
       "Bash(echo === Downloading 4 files ===:*)",
       "Bash(echo === File listing ===:*)",
-      "Bash(echo === SecurityTrails History ===:*)"
+      "Bash(echo === SecurityTrails History ===:*)",
+      "Bash(cd /root/code/nova2/server && make build 2>&1)",
+      "Bash(npm install:*)",
+      "Bash(cd /tmp && node test_operator.js 2>&1)"
     ]
   }
 }

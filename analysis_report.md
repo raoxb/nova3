@@ -2306,22 +2306,113 @@ WebSocket Signaling Server
 | **密码** | wumitech.com@123 | wumitech.com@123 |
 | **云服务商** | UCloud | UCloud |
 | **地理位置** | 香港 | 上海 |
-| **STUN 探测** | UDP 开放，无 STUN 响应 | STUN Binding Success ✓ |
+| **软件版本** | — (离线) | **Coturn-4.6.1 'Gorst'** |
+| **当前状态** | **离线** (端口无响应) | **存活** (凭据有效，可分配中继) |
 | **运营域名** | wumitech.com | wumitech.com |
 
-#### TURN 服务器在攻击链中的作用
+代码位置: `webrtc/WebRTCController.java:87-90`
+
+```java
+private static final String TURN_SERVER_1 = "turn:101.36.120.3:3478";
+private static final String TURN_SERVER_2 = "turn:106.75.153.105:3478";
+private static final String TURN_USERNAME = "wumitech";
+private static final String TURN_PASSWORD = "wumitech.com@123";
+```
+
+#### STUN 与 TURN 的双重角色
+
+SDK 中**没有配置独立的 STUN 服务器**，两个 `turn:` 地址同时承担 STUN 和 TURN 功能：
 
 ```
-TURN 服务器功能:
-├── NAT 穿透: 手机在 NAT 后面，无法直连 → TURN 作为中继
-├── 流量中转: 所有 WebRTC 媒体流和数据通道流量经 TURN 转发
-│   ├── VideoTrack (上行): 手机 → TURN → 攻击者 (15fps 屏幕画面)
-│   └── DataChannel (双向): 攻击者 → TURN → 手机 (控制指令)
-├── 双机冗余: 两台服务器提供高可用性
-│   ├── ICE 协商时同时探测两台
-│   └── 主服务器不可用时自动切换
-└── 凭据认证: 静态 long-term credentials (非 TURN REST API)
+TURN 服务器的双重角色:
+│
+├── ① STUN 功能 (NAT 穿透探测)
+│   ├── 发送 STUN Binding Request → 服务器返回设备公网 IP:Port
+│   ├── 生成 Server Reflexive Candidate (srflx)
+│   └── 用于尝试 P2P 直连 (仅在简单 NAT 环境下成功)
+│
+└── ② TURN 功能 (流量中继, 关键保底)
+    ├── 当 P2P 直连失败时 (对称 NAT / CGNAT / 防火墙)
+    ├── TURN Allocate → 服务器分配中继地址 (relay candidate)
+    ├── 所有 WebRTC 流量经 TURN 服务器中转
+    └── 这是大多数受害设备的实际连接方式
 ```
+
+#### TURN 在攻击链中的角色
+
+```
+受害设备 (Android)                              攻击者操作端 (浏览器)
+┌───────────────────┐                          ┌───────────────────┐
+│  WebView 自动化     │                          │  操作员控制面板     │
+│  ↓ 屏幕录制         │                          │  ↑ 实时视频流       │
+│  720×1280 @15fps   │                          │  ↓ 远程控制命令     │
+│                    │                          │                    │
+│  WebRTCController  │←── 信令 (WebSocket) ────→│  WebRTC Client    │
+│        │           │    SDP Offer/Answer       │                    │
+│        │           │    ICE Candidates         │                    │
+│        ▼           │                          │                    │
+│  PeerConnection    │◄═══ 媒体/数据通道 ════════►│  PeerConnection   │
+└────────┬───────────┘                          └────────┬───────────┘
+         │                                               │
+         │  ICE 候选收集 + 连通性检查                        │
+         ▼                                               ▼
+┌──────────────────────────────────────────────────────────────────┐
+│              TURN 服务器 (Coturn-4.6.1 'Gorst')                   │
+│                                                                   │
+│  ① STUN: 发现设备公网 IP:Port (Server Reflexive Candidate)        │
+│  ② TURN: P2P 失败时中继全部流量 (Relay Candidate)                 │
+│                                                                   │
+│  106.75.153.105:3478 (上海, UCloud)     ← 存活，凭据有效          │
+│  101.36.120.3:3478   (香港, UCloud)     ← 离线                    │
+│  Realm: wumitech  凭据: wumitech / wumitech.com@123              │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+TURN 中继传输的数据:
+
+| 传输内容 | 方向 | 技术实现 | 用途 |
+|---------|------|---------|------|
+| **VideoTrack** 720×1280 @15fps | 设备 → 攻击者 | WebView 屏幕捕获 (VirtualDisplay / Bitmap 降级) | 实时观看受害者浏览页面 |
+| **DataChannel** 控制命令 | 攻击者 → 设备 | JSON: click, drag, scroll, paste, keyInput, goBack | 远程操控 WebView |
+| **DataChannel** 心跳 | 双向 | ping/pong | 连接保活 |
+
+#### 为什么必须有 TURN 而非仅 STUN
+
+STUN 只能解决**简单 NAT**（锥形 NAT），受害者手机大概率在运营商级 CGNAT 或企业防火墙后面，P2P 直连成功率很低。TURN 中继是**保底方案**——确保无论网络环境多复杂，攻击者都能看到设备屏幕、发送控制命令。
+
+SDK 中的防护性配置（`signaling/WebRTCController.java:495-514`）:
+
+| 配置项 | 值 | 作用 |
+|--------|---|------|
+| `iceTransportsType` | `ALL` | 允许 host / srflx / relay 全部类型候选 |
+| `continualGatheringPolicy` | `GATHER_CONTINUALLY` | 连接建立后仍持续收集更优候选 |
+| `tcpCandidatePolicy` | `ENABLED` | UDP 被封时降级到 TCP |
+| `disableIPv6OnWifi` | `true` | 避免 IPv6 兼容问题 |
+| `bundlePolicy` | `MAXBUNDLE` | 合并媒体和数据到单一传输通道 |
+| ICE 错误 701/702 处理 | `restartIce()` | TURN/STUN 错误时自动重启 ICE |
+
+#### 屏幕捕获实现 (VideoTrack 来源)
+
+视频流有两种捕获方式，自动降级:
+
+| 方案 | 文件 | 原理 | 优先级 |
+|------|------|------|--------|
+| VirtualDisplay | `webrtc/VirtualDisplayCapturer.java` | 创建虚拟显示器 + ImageReader 读帧 (ARGB→NV21) | 主方案 |
+| Bitmap 截图 | `webrtc/BitmapFrameCapturer.java` | `View.draw(Canvas)` 截取 WebView 画面 | 降级方案 |
+
+两种方案均输出 **720×1280 @15fps** 的视频帧，经 WebRTC 编码后通过 TURN 中继推送到攻击者。
+
+#### ICE 连接优先级
+
+```
+ICE 候选优先级 (高→低):
+│
+├── 1. host candidate       — 设备内网 IP (仅局域网可达)
+├── 2. srflx candidate      — STUN 发现的公网 IP (简单 NAT 可达)
+└── 3. relay candidate      — TURN 分配的中继地址 (任何环境可达) ← 大多数情况
+```
+
+**简言之：TURN 服务器是整套远程控制系统的生命线。没有它，攻击者在绝大多数网络环境下无法实时观看和操控受害设备的 WebView 屏幕。**
 
 ### 14.6 服务器 ⑤：CDN 文件分发
 
@@ -2780,3 +2871,102 @@ $ host 18.204.68.18
 ```
 
 该 IP（`18.204.68.18`）已被 AWS 重新分配给 `hal-backend.pruna.ai`（一个 AI 模型优化平台），运行 Python FastAPI 应用。原始的 Spring Boot C&C 配置服务已不存在，表明攻击者已释放该 EC2 实例。
+
+### 14.13 TURN 服务器实时探测 (2026-02-24)
+
+#### 探测方法
+
+使用自编 TURN 监控工具 (`tools/turn_monitor.py`) 对两台 TURN 服务器执行三级探测:
+
+1. **STUN Binding Request** (RFC 5389) — 检测端口是否响应
+2. **TURN Allocate 无认证** — 获取 Realm + Nonce，确认长期凭据机制
+3. **TURN Allocate 完整认证** — 使用已知凭据完成 Allocate，获取中继地址
+
+#### 探测结果
+
+| 指标 | 101.36.120.3 (HK) | 106.75.153.105 (SH) |
+|------|-------------------|---------------------|
+| **STUN 响应** | 超时 ✗ | Binding Success ✓ (201ms) |
+| **软件版本** | — | Coturn-4.6.1 'Gorst' |
+| **Allocate 认证** | — | 401 → 凭据认证通过 ✓ |
+| **Realm** | — | `wumitech` |
+| **中继地址** | — | `106.75.153.105:58319` |
+| **Allocation Lifetime** | — | 600s (默认值) |
+| **端口采样 (5次)** | — | 50629-63648，间隔 ~13000 |
+
+#### 关键发现
+
+1. **上海 TURN 仍在运营**: `106.75.153.105` 运行 Coturn-4.6.1，凭据 `wumitech`/`wumitech.com@123` 仍然有效，可成功分配中继地址。
+2. **香港 TURN 已离线**: `101.36.120.3` 端口无响应，可能已关闭或迁移。
+3. **当前并发量极低**: 端口分配间隔约 13000（正常高负载下间隔为几十到几百），说明几乎没有活跃的 WebRTC 会话。
+4. **凭据未更换**: 与 APK 硬编码的静态凭据完全一致，攻击者未进行密码轮换。
+
+#### 监控指标与异常信号
+
+| 监控指标 | 正常值 | 异常信号 |
+|---------|--------|---------|
+| STUN 响应 | SH 存活, HK 离线 | HK 重新上线 = 基础设施重启 |
+| 凭据有效性 | 认证通过 | 变为 401 = 攻击者更换密码 |
+| 中继端口间隔 | ~13000 (空闲) | 缩小到几百 = 有大量活跃设备 |
+| Realm | `wumitech` | 变更 = 配置更新 |
+| Software 版本 | Coturn-4.6.1 | 版本变化 = 有人在维护升级 |
+| Allocation Lifetime | 600s | 变更 = 运营参数调整 |
+
+#### C&C 源站 API 探测 (对比)
+
+同时对 `playstations.click` 源站 IP `118.193.47.123` 进行了全部 API 端点探测:
+
+```
+使用 --resolve 绕过 Cloudflare 直连源站 (SNI + Host 均正确):
+
+/phantom/token              → 404 (nginx)
+/phantom/task               → 404 (nginx)
+/phantom/file               → 404 (nginx)
+/phantom/file_version       → 404 (nginx)
+/phantom/done               → 404 (nginx)
+/h5/get_job_by_offer        → 404 (nginx)
+/h5/js_file_for_signaling   → 404 (nginx)
+/h5/upload_logs_v2          → 404 (nginx)
+/h5/report_events           → 404 (nginx)
+/signaling/checkPluginStart → 404 (nginx)
+/signaling/updateStatus     → 404 (nginx)
+
+端口扫描: 仅 80 (→308重定向) 和 443 开放，其他端口 (8081-9090) 均关闭
+```
+
+#### 基础设施存活状态总览
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│              Nova2 基础设施存活状态 (2026-02-24)                   │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  C&C 配置服务器 (dllpgd.click)                                    │
+│  └─ 18.204.68.18 (AWS)          ██░░░░░░░░ IP 已回收 → pruna.ai │
+│                                                                  │
+│  C&C API 服务器 (playstations.click)                              │
+│  ├─ Cloudflare 代理               ████████░░ 代理存活, API 404   │
+│  └─ 118.193.47.123 (UCloud HK)   ████████░░ nginx 存活, Pod 已删 │
+│                                                                  │
+│  TURN 中继 #1 (101.36.120.3)                                     │
+│  └─ UCloud 香港                   ██░░░░░░░░ 端口无响应, 离线     │
+│                                                                  │
+│  TURN 中继 #2 (106.75.153.105)                                   │
+│  └─ UCloud 上海                   ██████████ 完全存活, 凭据有效    │
+│                                                                  │
+│  CDN 文件分发 (ufileos.com)                                       │
+│  └─ UCloud 华北                   ██████████ 模型文件仍可下载      │
+│                                                                  │
+│  域名 playstations.click                                          │
+│  └─ Amazon Registrar              ██████████ 有效至 2027-02-25    │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### 结论
+
+攻击者采取了**选择性关闭**策略:
+- **已关闭**: C&C API 后端 Pod (Kubernetes)、dllpgd.click EC2 实例、香港 TURN
+- **仍保留**: 上海 TURN 服务器、CDN 存储、域名注册、Cloudflare 代理、nginx-ingress 规则
+
+这种"只停应用不清基础设施"的模式表明攻击者可能已**迁移到新域名/新服务器**继续运营，保留 TURN 和 CDN 供仍在传播的旧版 APK 使用，同时随时可通过重新部署 Kubernetes Pod 恢复旧 C&C 的完整功能。
