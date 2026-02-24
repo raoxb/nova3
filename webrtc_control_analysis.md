@@ -103,12 +103,58 @@ public void onWebViewReady() {
 }
 ```
 
-### 3.2 信令交换 (WebSocket)
+### 3.2 信令基础设施
 
-WebRTCController 通过 `SignalingConnection` (WebSocket) 完成 SDP 和 ICE 交换：
+信令层由 **四层架构** 组成，从高到低：
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  SignalingApiClient (门面)                                        │
+│  ├── HTTP: checkPluginStart() / updateStatus()                   │
+│  └── WebSocket: connectWebSocket() / sendSignalingMessage()      │
+├─────────────────────────────────────────────────────────────────┤
+│  SignalingHttpClient           │ SignalingWebSocketManager        │
+│  ├── baseUrl: 信令服务器地址    │ ├── 自动重连 (MAX_RETRIES=5)      │
+│  ├── GET/POST + JSON序列化     │ ├── 消息队列 (离线缓存)            │
+│  ├── ResponseInfo 响应封装      │ ├── 心跳保活 (PING_INTERVAL=30s)  │
+│  └── HttpException 异常        │ └── RECONNECT_DELAY=3s           │
+├────────────────────────────────┤                                 │
+│  SignalingConnection           │ SignalingWebSocket (内部类)       │
+│  原始WebSocket信令管理          │ extends WebSocketClientBase       │
+│  SDP/ICE 消息封装+派发          │ 回调投递到主线程 (Handler)         │
+├─────────────────────────────────────────────────────────────────┤
+│  WebSocketClientBase (抽象基类)                                    │
+│  ├── Socket/SSL连接管理         ├── 读线程 (run方法)               │
+│  ├── WriteThread 异步写线程     ├── Proxy/SSL支持                 │
+│  └── CountDownLatch 同步        └── DnsResolver DNS解析            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**信令连接的容错机制：**
+
+| 机制 | 参数 | 说明 |
+|------|------|------|
+| 自动重连 | `MAX_RETRIES=5` | 断线后最多重试5次 |
+| 重连延迟 | `RECONNECT_DELAY=3000ms` | 每次重连间隔3秒 |
+| 心跳保活 | `PING_INTERVAL=30000ms` | 每30秒 ping 一次 WebSocket |
+| 消息队列 | `ConcurrentLinkedQueue` | 断线期间消息缓存，重连后自动 flush |
+| 线程安全 | `AtomicBoolean` / `AtomicInteger` | isConnected / retryCount 原子操作 |
+
+### 3.3 信令交换流程
+
+WebRTCController 通过信令层完成 SDP 和 ICE 交换：
 
 ```
 感染手机                         信令服务器                        操控端
+   │                                │                              │
+   │  CheckSignalingPluginStart     │                              │
+   │ ────────────── HTTP ────────>  │ (决定是否启用信令模式)         │
+   │ <──── pluginStart: true ─────  │                              │
+   │                                │                              │
+   │  SignalingApiClient.connectWebSocket()                        │
+   │  → SignalingWebSocketManager.connect()                        │
+   │  → WebSocketClientBase.connect()                              │
+   │ ════════════ WebSocket 连接 ════════════                      │
    │                                │                              │
    │  SignalingRequest(SDP Offer)   │                              │
    │ ────────────────────────────>  │  转发 SDP Offer              │
@@ -127,7 +173,7 @@ WebRTCController 通过 `SignalingConnection` (WebSocket) 完成 SDP 和 ICE 交
    │  ────── DataChannel (控制命令) ──►                             │
 ```
 
-### 3.3 TURN 中继
+### 3.4 TURN 中继
 
 NAT 穿越使用两台 TURN 服务器：
 
@@ -144,7 +190,7 @@ iceServers.add(PeerConnection.IceServer.builder(TURN_SERVER_1)
     .createIceServer());
 ```
 
-### 3.4 PeerConnection 配置
+### 3.5 PeerConnection 配置
 
 ```java
 // WebRTCController.java:571-580
@@ -158,7 +204,7 @@ rtcConfig.rtcpMuxPolicy  = REQUIRE;           // RTCP 复用
 rtcConfig.keyType        = ECDSA;             // 使用 ECDSA 密钥
 ```
 
-### 3.5 双通道创建
+### 3.6 双通道创建
 
 ```java
 // 上行：视频轨道（手机屏幕 → 操控端）
@@ -534,6 +580,11 @@ private void handlePing(JSONObject json) {
 | `WebRTCController.java` | `restored_java/webrtc/` | 主控制器：PeerConnection、DataChannel、命令处理、触摸分发 |
 | `SignalingModeTask.java` | `restored_java/touch/` | 信令模式任务：创建 WebRTCController、状态上报、截图代理 |
 | `SignalingConnection.java` | `restored_java/signaling/` | WebSocket 信令管理：SDP/ICE 交换、心跳、重连 |
+| `SignalingApiClient.java` | `restored_java/signaling/` | 信令门面：整合 HTTP + WebSocket，提供 checkPluginStart/connectWebSocket 等高层 API |
+| `SignalingHttpClient.java` | `restored_java/signaling/` | 信令 HTTP 客户端：GET/POST + JSON 序列化、ResponseInfo 响应封装 |
+| `SignalingWebSocketManager.java` | `restored_java/signaling/` | WebSocket 管理器：自动重连 (5次)、消息队列、心跳保活 (30s) |
+| `WebSocketClientBase.java` | `restored_java/websocket/` | WebSocket 抽象基类：Socket/SSL 管理、读写线程、Proxy 支持 |
+| `DnsResolver.java` | `restored_java/websocket/` | DNS 解析接口：URI → InetAddress |
 | `VirtualDisplayCapturer.java` | `restored_java/webrtc/` | 屏幕捕获：VirtualDisplay → VideoFrame |
 | `BitmapFrameCapturer.java` | `restored_java/webrtc/` | 备用截图：WebView Bitmap → VideoFrame |
 | `ControlCommand.java` | `restored_java/signaling/` | 控制命令封装：click/scroll/input |
