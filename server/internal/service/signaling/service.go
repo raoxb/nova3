@@ -1,6 +1,7 @@
 package signaling
 
 import (
+	"nova2-server/internal/config"
 	"nova2-server/internal/store"
 )
 
@@ -8,18 +9,24 @@ type Service struct {
 	devices *store.DeviceRepo
 	jobs    *store.JobRepo
 	rooms   *RoomManager
+	turnCfg config.TURNConfig
 }
 
-func NewService(devices *store.DeviceRepo, jobs *store.JobRepo) *Service {
+func NewService(devices *store.DeviceRepo, jobs *store.JobRepo, turnCfg config.TURNConfig) *Service {
 	return &Service{
 		devices: devices,
 		jobs:    jobs,
 		rooms:   NewRoomManager(),
+		turnCfg: turnCfg,
 	}
 }
 
 func (s *Service) Rooms() *RoomManager {
 	return s.rooms
+}
+
+func (s *Service) TURNConfig() config.TURNConfig {
+	return s.turnCfg
 }
 
 // CheckPluginStart determines if a device should start the signaling plugin.

@@ -66,8 +66,8 @@ func main() {
 	// Initialize services
 	dllpgdSvc := dllpgd.NewService(deviceRepo, eventRepo, pluginRepo)
 	phantomSvc := phantom.NewService(deviceRepo, tokenRepo, pluginRepo)
-	h5Svc := h5.NewService(deviceRepo, eventRepo, jobRepo, pluginRepo, tokenRepo)
-	signalingSvc := signaling.NewService(deviceRepo, jobRepo)
+	h5Svc := h5.NewService(deviceRepo, eventRepo, jobRepo, pluginRepo, tokenRepo, cfg.TURN)
+	signalingSvc := signaling.NewService(deviceRepo, jobRepo, cfg.TURN)
 
 	// Initialize handlers
 	dllpgdHandler := dllpgd.NewHandler(dllpgdSvc)
@@ -136,6 +136,7 @@ func main() {
 		r.Get("/admin/api/devices", adminHandler.APIListDevices)
 		r.Get("/admin/api/jobs", adminHandler.APIListJobs)
 		r.Get("/admin/api/rooms", adminHandler.APIListRooms)
+		r.Get("/admin/api/turn", adminHandler.APIGetTURNConfig)
 	})
 	// Redirect root to admin
 	adminRouter.Get("/", func(w http.ResponseWriter, r *http.Request) {

@@ -195,6 +195,7 @@ GET /ws?role=operator&room_id={device_id}  # 操作员连接
 | `/admin/api/devices` | 设备列表 JSON |
 | `/admin/api/jobs` | Job 列表 JSON |
 | `/admin/api/rooms` | 活跃信令房间 JSON |
+| `/admin/api/turn` | TURN/STUN 配置 JSON |
 
 ## 数据库
 
@@ -270,6 +271,63 @@ server/
 | `github.com/rs/zerolog` | 结构化日志 |
 | `gopkg.in/yaml.v3` | 配置文件 |
 | `github.com/google/uuid` | UUID 生成 |
+
+## TURN/STUN 中继服务器
+
+WebRTC 信令需要 TURN/STUN 服务器进行 NAT 穿透。原始 APK 硬编码了两个 TURN 服务器：
+
+```
+turn:101.36.120.3:3478  (用户: wumitech / 密码: wumitech.com@123)
+turn:106.75.153.105:3478 (用户: wumitech / 密码: wumitech.com@123)
+```
+
+研究环境需要自建 coturn 替代。
+
+### 快速部署 coturn
+
+```bash
+# 使用 Docker Compose 启动
+docker compose -f docker-compose.coturn.yml up -d
+
+# 验证 TURN 服务
+turnutils_uclient -u nova2 -w nova2turn 127.0.0.1
+```
+
+### 配置说明
+
+`config.yaml` 中的 `turn` 部分配置 TURN/STUN 服务器：
+
+```yaml
+turn:
+  servers:
+    - url: "turn:127.0.0.1:3478"
+      username: "nova2"
+      password: "nova2turn"
+  stun_url: "stun:127.0.0.1:3478"
+```
+
+配置如何传递到各组件：
+
+| 组件 | 用途 |
+|------|------|
+| h5 服务 (`/h5/get_job_by_offer`) | 在 job 响应中下发 `turn_servers` + `stun_url`，设备端 WebView 使用 |
+| Admin WebRTC 面板 (`/admin/webrtc`) | 注入 `ICE_SERVERS` JS 变量，操作员浏览器使用 |
+| Admin API (`/admin/api/turn`) | 返回当前 TURN 配置 JSON |
+
+### 远程部署
+
+如果 TURN 服务器部署在公网服务器上，修改 `config.yaml`：
+
+```yaml
+turn:
+  servers:
+    - url: "turn:your-public-ip:3478"
+      username: "nova2"
+      password: "your-password"
+  stun_url: "stun:your-public-ip:3478"
+```
+
+同时修改 `turnserver.conf` 中的 `user=` 和 `realm=` 字段，并在 `docker-compose.coturn.yml` 中根据需要调整网络配置。
 
 ## 使用 c2_client.py 验证
 

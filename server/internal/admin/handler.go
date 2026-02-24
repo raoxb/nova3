@@ -212,13 +212,29 @@ func (h *Handler) Events(w http.ResponseWriter, r *http.Request) {
 // WebRTCControl shows the WebRTC operator control panel.
 func (h *Handler) WebRTCControl(w http.ResponseWriter, r *http.Request) {
 	activeRooms := h.sigSvc.Rooms().ListRoomIDs()
-
 	devices, _ := h.devices.List()
+	turnCfg := h.sigSvc.TURNConfig()
+
+	// Build ICE servers JSON for the JS client
+	iceServers := []map[string]interface{}{}
+	if turnCfg.STUNURL != "" {
+		iceServers = append(iceServers, map[string]interface{}{"urls": turnCfg.STUNURL})
+	}
+	for _, ts := range turnCfg.Servers {
+		iceServers = append(iceServers, map[string]interface{}{
+			"urls":       ts.URL,
+			"username":   ts.Username,
+			"credential": ts.Password,
+		})
+	}
+	iceJSON, _ := json.Marshal(iceServers)
 
 	data := map[string]interface{}{
 		"Title":       "WebRTC Control",
 		"ActiveRooms": activeRooms,
 		"Devices":     devices,
+		"ICEServers":  template.JS(iceJSON),
+		"TURNConfig":  turnCfg,
 	}
 
 	h.render(w, "webrtc_control.html", data)
@@ -247,6 +263,10 @@ func (h *Handler) APIListJobs(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) APIListRooms(w http.ResponseWriter, r *http.Request) {
 	rooms := h.sigSvc.Rooms().ListRoomIDs()
 	writeJSON(w, http.StatusOK, rooms)
+}
+
+func (h *Handler) APIGetTURNConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, h.sigSvc.TURNConfig())
 }
 
 func (h *Handler) render(w http.ResponseWriter, name string, data interface{}) {

@@ -9,6 +9,7 @@ import (
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Crypto   CryptoConfig   `yaml:"crypto"`
+	TURN     TURNConfig     `yaml:"turn"`
 	Admin    AdminConfig    `yaml:"admin"`
 	Database DatabaseConfig `yaml:"database"`
 	Logging  LoggingConfig  `yaml:"logging"`
@@ -23,6 +24,17 @@ type ServerConfig struct {
 
 type CryptoConfig struct {
 	AESKeySeed string `yaml:"aes_key_seed"`
+}
+
+type TURNServer struct {
+	URL      string `yaml:"url"      json:"url"`
+	Username string `yaml:"username" json:"username"`
+	Password string `yaml:"password" json:"password"`
+}
+
+type TURNConfig struct {
+	Servers []TURNServer `yaml:"servers" json:"servers"`
+	STUNURL string       `yaml:"stun_url" json:"stun_url"`
 }
 
 type AdminConfig struct {
@@ -54,6 +66,12 @@ func Load(path string) (*Config, error) {
 		},
 		Crypto: CryptoConfig{
 			AESKeySeed: "GreenDay",
+		},
+		TURN: TURNConfig{
+			Servers: []TURNServer{
+				{URL: "turn:127.0.0.1:3478", Username: "nova2", Password: "nova2turn"},
+			},
+			STUNURL: "stun:127.0.0.1:3478",
 		},
 		Admin: AdminConfig{
 			Username: "admin",

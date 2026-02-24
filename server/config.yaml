@@ -7,6 +7,16 @@ server:
 crypto:
   aes_key_seed: "GreenDay"
 
+turn:
+  # TURN/STUN 服务器配置 — WebRTC 中继
+  # 原始 APK 硬编码: turn:101.36.120.3:3478 / turn:106.75.153.105:3478
+  # 研究环境使用自建 coturn，见 README.md
+  servers:
+    - url: "turn:127.0.0.1:3478"
+      username: "nova2"
+      password: "nova2turn"
+  stun_url: "stun:127.0.0.1:3478"
+
 admin:
   username: "admin"
   password: "nova2admin"

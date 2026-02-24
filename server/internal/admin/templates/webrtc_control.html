@@ -1,6 +1,18 @@
 {{define "page_content"}}
 <h1>WebRTC Control Panel</h1>
 <div class="card">
+  <h2>TURN/STUN Configuration</h2>
+  <table>
+    <tr><th>Type</th><th>URL</th><th>Username</th></tr>
+    {{if .TURNConfig.STUNURL}}
+    <tr><td>STUN</td><td class="mono">{{.TURNConfig.STUNURL}}</td><td>—</td></tr>
+    {{end}}
+    {{range .TURNConfig.Servers}}
+    <tr><td>TURN</td><td class="mono">{{.URL}}</td><td class="mono">{{.Username}}</td></tr>
+    {{end}}
+  </table>
+</div>
+<div class="card">
   <h2>Active Signaling Rooms ({{len .ActiveRooms}})</h2>
   {{if .ActiveRooms}}
   <ul>
@@ -45,5 +57,9 @@
     <button class="btn btn-sm" onclick="sendControl('recents')">Recents</button>
   </div>
 </div>
+<script>
+// ICE servers configuration injected from server config
+var ICE_SERVERS = {{.ICEServers}};
+</script>
 <script src="/static/js/webrtc_operator.js"></script>
 {{end}}

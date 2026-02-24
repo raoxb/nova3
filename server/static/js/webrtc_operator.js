@@ -1,6 +1,8 @@
 // WebRTC Operator Client
 // Connects to the signaling WebSocket and establishes a WebRTC peer connection
 // to receive a device's video stream and send control commands via DataChannel.
+//
+// ICE_SERVERS is injected by the HTML template from server config (TURN/STUN).
 
 let ws = null;
 let pc = null;
@@ -9,6 +11,15 @@ let currentRoomId = null;
 
 const signalingHost = window.location.hostname || 'localhost';
 const signalingPort = '8082';
+
+function getICEConfig() {
+    // Use server-injected config, fallback to public STUN only
+    const servers = (typeof ICE_SERVERS !== 'undefined' && ICE_SERVERS) ? ICE_SERVERS : [];
+    if (servers.length === 0) {
+        return { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+    }
+    return { iceServers: servers };
+}
 
 function connectRoom(roomId) {
     if (!roomId) {
@@ -30,7 +41,6 @@ function connectRoom(roomId) {
     ws.onopen = function() {
         console.log('[WS] Connected to signaling server');
         document.getElementById('connStatus').textContent = 'WS Connected';
-        // Send a ping to verify
         ws.send(JSON.stringify({
             atom: roomId,
             content: { content_type: 'ping' }
@@ -80,9 +90,14 @@ function connectRoom(roomId) {
 }
 
 function createPeerConnection() {
-    const config = {
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    };
+    const config = getICEConfig();
+    console.log('[WebRTC] ICE config:', JSON.stringify(config));
+
+    // Match APK RTCConfiguration settings
+    config.bundlePolicy = 'max-bundle';
+    config.rtcpMuxPolicy = 'require';
+    config.sdpSemantics = 'unified-plan';
+    config.iceCandidatePoolSize = 0;
 
     pc = new RTCPeerConnection(config);
 
@@ -97,6 +112,30 @@ function createPeerConnection() {
                     sdpMLineIndex: event.candidate.sdpMLineIndex
                 }
             }));
+        }
+    };
+
+    pc.oniceconnectionstatechange = function() {
+        console.log('[WebRTC] ICE state:', pc.iceConnectionState);
+        const status = document.getElementById('connStatus');
+        switch (pc.iceConnectionState) {
+            case 'checking':
+                status.textContent = 'ICE Checking...';
+                status.className = 'badge badge-yellow';
+                break;
+            case 'connected':
+            case 'completed':
+                status.textContent = 'ICE Connected';
+                status.className = 'badge badge-green';
+                break;
+            case 'failed':
+                status.textContent = 'ICE Failed';
+                status.className = 'badge badge-red';
+                break;
+            case 'disconnected':
+                status.textContent = 'ICE Disconnected';
+                status.className = 'badge badge-red';
+                break;
         }
     };
 
@@ -164,8 +203,7 @@ function handleSDPOffer(msg) {
     if (!pc) createPeerConnection();
 
     const content = msg.content || {};
-    // If we receive an SDP offer from device, this means the device initiated
-    const sdp = content.sdp || (msg.atom && JSON.parse(msg.atom).sdp);
+    const sdp = content.sdp;
 
     pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: sdp }))
         .then(function() { return pc.createAnswer(); })

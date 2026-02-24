@@ -1,0 +1,13 @@
+version: "3.8"
+
+# coturn TURN/STUN relay server for Nova2 WebRTC signaling
+# Usage: docker compose -f docker-compose.coturn.yml up -d
+
+services:
+  coturn:
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/turnserver.conf:ro
+    command: ["-c", "/etc/turnserver.conf"]
