@@ -163,8 +163,7 @@ GET /ws?role=operator&room_id={device_id}  # 操作员连接
   "content": {
     "content_type": "sdp_offer|sdp_answer|ice_candidate|control|ping",
     "sdp": "...",
-    "candidate": "...",
-    "command": "screenshot|home|back|recents"
+    "candidate": "..."
   }
 }
 ```
@@ -172,9 +171,36 @@ GET /ws?role=operator&room_id={device_id}  # 操作员连接
 支持的 content_type：
 - `sdp_offer` / `sdp_answer` — WebRTC SDP 交换
 - `ice_candidate` — ICE 候选
-- `control` — 远程控制命令
+- `control` — 远程控制命令（SDK 兼容 JSON，见下文）
 - `ping` / `pong` — 心跳
 - `done` — 会话结束
+
+#### 控制指令格式（SDK 兼容）
+
+操作面板通过 DataChannel（优先）或 WebSocket fallback（`content_type: "control"`）发送控制指令。
+所有指令为 JSON，`action` 字段必需，坐标归一化到 0..1，与 APK 端 `WebRTCController.java` 完全兼容：
+
+| Action | 格式 | 说明 |
+|--------|------|------|
+| `click` | `{"action":"click","x":0.5,"y":0.3}` | 点击屏幕坐标 |
+| `dragStart` | `{"action":"dragStart","x":0.3,"y":0.8}` | 拖拽开始 |
+| `drag` | `{"action":"drag","x":0.3,"y":0.5}` | 拖拽移动（连续，50ms 节流） |
+| `dragEnd` | `{"action":"dragEnd","x":0.3,"y":0.2}` | 拖拽结束 |
+| `scroll` | `{"action":"scroll","x":0.5,"y":0.5,"deltaX":0,"deltaY":100}` | 滚动 |
+| `paste` | `{"action":"paste","text":"hello"}` | 粘贴文字到 WebView |
+| `keyInput` | `{"action":"keyInput","key":"Enter","code":13}` | 按键事件 |
+| `goBack` | `{"action":"goBack"}` | WebView 后退 |
+| `close` | `{"action":"close"}` | 关闭连接 |
+| `screenshot` | `{"action":"screenshot"}` | 截屏 |
+| `ping` | `{"action":"ping","timestamp":1700000000000}` | 心跳探测 |
+
+操作面板 UI 功能：
+- **视频区域交互**：在视频画面上直接点击/拖拽/滚动，自动检测拖拽（阈值 5px）
+- **触摸屏支持**：touch 事件映射到相同逻辑
+- **视觉反馈**：canvas 覆盖层绘制点击圆圈、拖拽轨迹、滚动箭头
+- **文字输入**：Paste 输入框 + 键盘事件输入框（Enter/Backspace/Esc/Tab）
+- **手动坐标**：X/Y 输入框备用点击
+- **指令日志**：最近 20 条指令实时显示
 
 ### Admin 管理面板（`:9090`）
 
@@ -359,3 +385,140 @@ curl -X POST http://localhost:8082/signaling/checkPluginStart \
 # 管理面板
 curl -u admin:nova2admin http://localhost:9090/admin/
 ```
+
+## WebRTC 操作面板验证
+
+用 wscat / Node.js 模拟设备端，验证操作面板发出的控制指令格式与 SDK 兼容。
+
+### 前置条件
+
+```bash
+npm install -g wscat    # 或使用 Node.js ws 模块
+cd server && make build && make run
+```
+
+### 步骤 1：启动 mock 设备
+
+创建 `mock_device.js`：
+
+```javascript
+const WebSocket = require('ws');
+const roomId = 'test-device-001';
+const ws = new WebSocket(`ws://localhost:8082/ws?role=device&room_id=${roomId}`);
+
+ws.on('open', () => console.log('[Mock] Connected as device in room:', roomId));
+ws.on('message', (data) => {
+    const msg = JSON.parse(data.toString());
+    const content = msg.content || {};
+    if (content.content_type === 'ping') {
+        ws.send(JSON.stringify({ atom: roomId, content: { content_type: 'pong' } }));
+    } else if (content.content_type === 'control') {
+        const { content_type, ...rest } = content;
+        console.log('[Mock] CONTROL:', JSON.stringify(rest));
+        console.log('       action=' + rest.action, rest.action ? '✓' : '✗ Missing action');
+    } else {
+        console.log('[Mock] <<', content.content_type);
+    }
+});
+```
+
+运行：`node mock_device.js`
+
+### 步骤 2：模拟操作员发送全部指令
+
+创建 `test_operator.js`：
+
+```javascript
+const WebSocket = require('ws');
+const roomId = 'test-device-001';
+const ws = new WebSocket(`ws://localhost:8082/ws?role=operator&room_id=${roomId}`);
+
+const commands = [
+    { action: 'click', x: 0.5, y: 0.3 },
+    { action: 'dragStart', x: 0.3, y: 0.8 },
+    { action: 'drag', x: 0.3, y: 0.5 },
+    { action: 'dragEnd', x: 0.3, y: 0.2 },
+    { action: 'scroll', x: 0.5, y: 0.5, deltaX: 0, deltaY: 100 },
+    { action: 'paste', text: 'hello world' },
+    { action: 'keyInput', key: 'Enter', code: 13 },
+    { action: 'keyInput', key: 'Backspace', code: 8 },
+    { action: 'goBack' },
+    { action: 'close' },
+    { action: 'screenshot' },
+    { action: 'ping', timestamp: Date.now() },
+    { action: 'keyInput', key: 'Home', code: 3 },
+    { action: 'keyInput', key: 'Recents', code: 187 },
+];
+
+ws.on('open', () => {
+    ws.send(JSON.stringify({ atom: roomId, content: { content_type: 'ping' } }));
+});
+ws.on('message', (data) => {
+    const msg = JSON.parse(data.toString());
+    if (msg.content && msg.content.content_type === 'pong') {
+        let i = 0;
+        const iv = setInterval(() => {
+            if (i >= commands.length) { clearInterval(iv); ws.close(); return; }
+            const cmd = commands[i];
+            ws.send(JSON.stringify({
+                atom: roomId,
+                content: Object.assign({ content_type: 'control' }, cmd)
+            }));
+            console.log(`Sent #${i + 1}: ${JSON.stringify(cmd)}`);
+            i++;
+        }, 200);
+    }
+});
+```
+
+运行：`node test_operator.js`
+
+### 步骤 3：验证结果
+
+mock 设备终端应显示全部 14 条指令，每条都有 `✓`：
+
+```
+[Mock] CONTROL: {"action":"click","x":0.5,"y":0.3}
+       action=click ✓
+[Mock] CONTROL: {"action":"dragStart","x":0.3,"y":0.8}
+       action=dragStart ✓
+[Mock] CONTROL: {"action":"drag","x":0.3,"y":0.5}
+       action=drag ✓
+[Mock] CONTROL: {"action":"dragEnd","x":0.3,"y":0.2}
+       action=dragEnd ✓
+[Mock] CONTROL: {"action":"scroll","x":0.5,"y":0.5,"deltaX":0,"deltaY":100}
+       action=scroll ✓
+[Mock] CONTROL: {"action":"paste","text":"hello world"}
+       action=paste ✓
+[Mock] CONTROL: {"action":"keyInput","key":"Enter","code":13}
+       action=keyInput ✓
+[Mock] CONTROL: {"action":"keyInput","key":"Backspace","code":8}
+       action=keyInput ✓
+[Mock] CONTROL: {"action":"goBack"}
+       action=goBack ✓
+[Mock] CONTROL: {"action":"close"}
+       action=close ✓
+[Mock] CONTROL: {"action":"screenshot"}
+       action=screenshot ✓
+[Mock] CONTROL: {"action":"ping","timestamp":...}
+       action=ping ✓
+[Mock] CONTROL: {"action":"keyInput","key":"Home","code":3}
+       action=keyInput ✓
+[Mock] CONTROL: {"action":"keyInput","key":"Recents","code":187}
+       action=keyInput ✓
+```
+
+### 步骤 4：浏览器 UI 测试
+
+1. 打开 `http://localhost:9090/admin/webrtc`（admin:nova2admin）
+2. 在 Active Rooms 中找到 `test-device-001` → Connect
+3. 在视频黑屏区域点击/拖拽/滚动，观察 mock 设备终端输出
+4. 在 Text Input 输入文字点 Paste，验证收到 `{"action":"paste","text":"..."}`
+5. 在 Manual Coordinate Click 输入 X=0.5 Y=0.5 点 Click，验证坐标
+6. 页面底部 Command Log 面板显示所有已发指令
+
+### 已知说明
+
+- 没有真实 APK 推流时视频区域为黑屏，但鼠标/触摸交互仍可用
+- DataChannel 在无 SDP 应答时不会建立，控制指令自动 fallback 到 WebSocket 转发
+- `middleware/logging.go` 的 `statusWriter` 已实现 `http.Hijacker` 接口以支持 WebSocket upgrade
